@@ -1,6 +1,7 @@
-package container
+package container // import "github.com/docker/docker/daemon/cluster/executor/container"
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 
@@ -10,7 +11,8 @@ import (
 func validateMounts(mounts []api.Mount) error {
 	for _, mount := range mounts {
 		// Target must always be absolute
-		if !filepath.IsAbs(mount.Target) {
+		// except if target is Windows named pipe
+		if !filepath.IsAbs(mount.Target) && mount.Type != api.MountTypeNamedPipe {
 			return fmt.Errorf("invalid mount target, must be an absolute path: %s", mount.Target)
 		}
 
@@ -29,7 +31,11 @@ func validateMounts(mounts []api.Mount) error {
 			}
 		case api.MountTypeTmpfs:
 			if mount.Source != "" {
-				return fmt.Errorf("invalid tmpfs source, source must be empty")
+				return errors.New("invalid tmpfs source, source must be empty")
+			}
+		case api.MountTypeNamedPipe:
+			if mount.Source == "" {
+				return errors.New("invalid npipe source, source must not be empty")
 			}
 		default:
 			return fmt.Errorf("invalid mount type: %s", mount.Type)

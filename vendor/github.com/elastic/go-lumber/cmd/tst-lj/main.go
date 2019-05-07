@@ -1,3 +1,20 @@
+// Licensed to Elasticsearch B.V. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. Elasticsearch B.V. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 // Lumberjack server test tool.
 //
 // Create lumberjack server endpoint ACKing all received batches only. The
@@ -9,11 +26,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"time"
 
+	"github.com/elastic/go-lumber/lj"
 	"github.com/elastic/go-lumber/server"
 )
 
@@ -27,6 +46,7 @@ func main() {
 	v1 := flag.Bool("v1", false, "Enable protocol version v1")
 	v2 := flag.Bool("v2", false, "Enable protocol version v2")
 	limit := flag.Int("rate", 0, "max batch ack rate")
+	detailed := flag.Bool("d", false, "detailed: print log message per event")
 	flag.Parse()
 
 	s, err := server.ListenAndServe(*bind,
@@ -54,24 +74,55 @@ func main() {
 		os.Exit(0)
 	}()
 
-	if rl == nil {
-		for batch := range s.ReceiveChan() {
-			log.Printf("Received batch of %v events\n", len(batch.Events))
-			batch.ACK()
-		}
-	} else {
-		for batch := range s.ReceiveChan() {
-			if !rl.Wait() {
-				break
+	printLog := func(batch *lj.Batch) bool {
+		log.Printf("Received batch of %v events\n", len(batch.Events))
+		return true
+	}
+
+	switch {
+	case rl == nil && *detailed:
+		printLog = func(batch *lj.Batch) bool {
+			for range batch.Events {
+				log.Println("Received event")
 			}
-			log.Printf("Received batch of %v events\n", len(batch.Events))
-			batch.ACK()
+			return true
 		}
+
+	case rl != nil && *detailed:
+		printLog = func(batch *lj.Batch) bool {
+			for range batch.Events {
+				if !rl.Wait() {
+					return false
+				}
+				log.Println("Received event")
+			}
+			return true
+		}
+
+	case rl != nil && !(*detailed):
+		printLog = func(batch *lj.Batch) bool {
+			for range batch.Events {
+				if !rl.Wait() {
+					return false
+				}
+			}
+
+			log.Printf("Received batch of %v events\n", len(batch.Events))
+			return true
+		}
+	}
+
+	for batch := range s.ReceiveChan() {
+		if !printLog(batch) {
+			break
+		}
+		batch.ACK()
 	}
 }
 
 func newRateLimiter(limit, burstLimit int, unit time.Duration) *rateLimiter {
 	interval := time.Duration(uint64(unit) / uint64(limit))
+	fmt.Println("rate limiter interval:", interval)
 	ticker := time.NewTicker(interval)
 	ch := make(chan time.Time, burstLimit)
 	r := &rateLimiter{ticker: ticker, ch: ch}

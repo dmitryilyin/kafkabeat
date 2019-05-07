@@ -18,10 +18,10 @@
 package fileset
 
 import (
-	uuid "github.com/satori/go.uuid"
+	"github.com/gofrs/uuid"
 
 	"github.com/elastic/beats/filebeat/channel"
-	input "github.com/elastic/beats/filebeat/prospector"
+	"github.com/elastic/beats/filebeat/input"
 	"github.com/elastic/beats/filebeat/registrar"
 	"github.com/elastic/beats/libbeat/beat"
 	"github.com/elastic/beats/libbeat/cfgfile"
@@ -117,6 +117,12 @@ func (f *Factory) Create(p beat.Pipeline, c *common.Config, meta *common.MapStrP
 	}, nil
 }
 
+// CheckConfig checks if a config is valid or not
+func (f *Factory) CheckConfig(config *common.Config) error {
+	// TODO: add code here once we know that spinning up a filebeat input to check for errors doesn't cause memory leaks.
+	return nil
+}
+
 func (p *inputsRunner) Start() {
 	// Load pipelines
 	if p.pipelineLoaderFactory != nil {
@@ -141,7 +147,10 @@ func (p *inputsRunner) Start() {
 		callback := func(esClient *elasticsearch.Client) error {
 			return p.moduleRegistry.LoadPipelines(esClient, p.overwritePipelines)
 		}
-		p.pipelineCallbackID = elasticsearch.RegisterConnectCallback(callback)
+		p.pipelineCallbackID, err = elasticsearch.RegisterConnectCallback(callback)
+		if err != nil {
+			logp.Err("Error registering connect callback for Elasticsearch to load pipelines: %v", err)
+		}
 	}
 
 	for _, input := range p.inputs {

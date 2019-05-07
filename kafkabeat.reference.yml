@@ -17,7 +17,7 @@ kafkabeat:
   group: "kafkabeat"
 
   # The initial offset to use if no offset was previously committed.
-	# Should be "newest" or "oldest". Defaults to "newest".
+  # Should be "newest" or "oldest". Defaults to "newest".
   offset: "newest"
 
   # Codec to use. Can be either "plain" or "json".
@@ -25,16 +25,16 @@ kafkabeat:
   # Defaults to "json".
   codec: "json"
 
-  # Event publish mode: "default", "send" or "drop_if_full".
-  # Defaults to "default"
-  # @see https://github.com/elastic/beats/blob/v6.3.1/libbeat/beat/pipeline.go#L119
-  # for detailed explanation.
+  # Choose publish mode
+  # - default: Retry count based on output. Blocks if queue is full
+  # - send: Infinite retry + Block if queue is full (e.g. filebeat)
+  # - drop_if_full: Drop event if queue can not accept the event (e.g. packetbeat)
   #publish_mode: "default"
 
-  # Channel buffer size.
-  # Defaults to 256
-  # @see https://github.com/Shopify/sarama/blob/v1.17.0/config.go#L262
-  # for detailed explanation
+  # The number of events to buffer in internal and external channels. This
+  # permits the producer and consumer to continue processing some messages
+  # in the background while user code is working, greatly improving throughput.
+  # Defaults to 256.
   #channel_buffer_size: 256
 
   # Number of concurrent publish workers.
@@ -67,84 +67,84 @@ kafkabeat:
 
 # Internal queue configuration for buffering events to be published.
 #queue:
-  # Queue type by name (default 'mem')
-  # The memory queue will present all available events (up to the outputs
-  # bulk_max_size) to the output, the moment the output is ready to server
-  # another batch of events.
-  #mem:
-    # Max number of events the queue can buffer.
-    #events: 4096
+# Queue type by name (default 'mem')
+# The memory queue will present all available events (up to the outputs
+# bulk_max_size) to the output, the moment the output is ready to server
+# another batch of events.
+#mem:
+# Max number of events the queue can buffer.
+#events: 4096
 
-    # Hints the minimum number of events stored in the queue,
-    # before providing a batch of events to the outputs.
-    # The default value is set to 2048.
-    # A value of 0 ensures events are immediately available
-    # to be sent to the outputs.
-    #flush.min_events: 2048
+# Hints the minimum number of events stored in the queue,
+# before providing a batch of events to the outputs.
+# The default value is set to 2048.
+# A value of 0 ensures events are immediately available
+# to be sent to the outputs.
+#flush.min_events: 2048
 
-    # Maximum duration after which events are available to the outputs,
-    # if the number of events stored in the queue is < min_flush_events.
-    #flush.timeout: 1s
+# Maximum duration after which events are available to the outputs,
+# if the number of events stored in the queue is < min_flush_events.
+#flush.timeout: 1s
 
-  # The spool queue will store events in a local spool file, before
-  # forwarding the events to the outputs.
-  #
-  # Beta: spooling to disk is currently a beta feature. Use with care.
-  #
-  # The spool file is a circular buffer, which blocks once the file/buffer is full.
-  # Events are put into a write buffer and flushed once the write buffer
-  # is full or the flush_timeout is triggered.
-  # Once ACKed by the output, events are removed immediately from the queue,
-  # making space for new events to be persisted.
-  #spool:
-    # The file namespace configures the file path and the file creation settings.
-    # Once the file exists, the `size`, `page_size` and `prealloc` settings
-    # will have no more effect.
-    #file:
-      # Location of spool file. The default value is ${path.data}/spool.dat.
-      #path: "${path.data}/spool.dat"
+# The spool queue will store events in a local spool file, before
+# forwarding the events to the outputs.
+#
+# Beta: spooling to disk is currently a beta feature. Use with care.
+#
+# The spool file is a circular buffer, which blocks once the file/buffer is full.
+# Events are put into a write buffer and flushed once the write buffer
+# is full or the flush_timeout is triggered.
+# Once ACKed by the output, events are removed immediately from the queue,
+# making space for new events to be persisted.
+#spool:
+# The file namespace configures the file path and the file creation settings.
+# Once the file exists, the `size`, `page_size` and `prealloc` settings
+# will have no more effect.
+#file:
+# Location of spool file. The default value is ${path.data}/spool.dat.
+#path: "${path.data}/spool.dat"
 
-      # Configure file permissions if file is created. The default value is 0600.
-      #permissions: 0600
+# Configure file permissions if file is created. The default value is 0600.
+#permissions: 0600
 
-      # File size hint. The spool blocks, once this limit is reached. The default value is 100 MiB.
-      #size: 100MiB
+# File size hint. The spool blocks, once this limit is reached. The default value is 100 MiB.
+#size: 100MiB
 
-      # The files page size. A file is split into multiple pages of the same size. The default value is 4KiB.
-      #page_size: 4KiB
+# The files page size. A file is split into multiple pages of the same size. The default value is 4KiB.
+#page_size: 4KiB
 
-      # If prealloc is set, the required space for the file is reserved using
-      # truncate. The default value is true.
-      #prealloc: true
+# If prealloc is set, the required space for the file is reserved using
+# truncate. The default value is true.
+#prealloc: true
 
-    # Spool writer settings
-    # Events are serialized into a write buffer. The write buffer is flushed if:
-    # - The buffer limit has been reached.
-    # - The configured limit of buffered events is reached.
-    # - The flush timeout is triggered.
-    #write:
-      # Sets the write buffer size.
-      #buffer_size: 1MiB
+# Spool writer settings
+# Events are serialized into a write buffer. The write buffer is flushed if:
+# - The buffer limit has been reached.
+# - The configured limit of buffered events is reached.
+# - The flush timeout is triggered.
+#write:
+# Sets the write buffer size.
+#buffer_size: 1MiB
 
-      # Maximum duration after which events are flushed, if the write buffer
-      # is not full yet. The default value is 1s.
-      #flush.timeout: 1s
+# Maximum duration after which events are flushed if the write buffer
+# is not full yet. The default value is 1s.
+#flush.timeout: 1s
 
-      # Number of maximum buffered events. The write buffer is flushed once the
-      # limit is reached.
-      #flush.events: 16384
+# Number of maximum buffered events. The write buffer is flushed once the
+# limit is reached.
+#flush.events: 16384
 
-      # Configure the on-disk event encoding. The encoding can be changed
-      # between restarts.
-      # Valid encodings are: json, ubjson, and cbor.
-      #codec: cbor
-    #read:
-      # Reader flush timeout, waiting for more events to become available, so
-      # to fill a complete batch, as required by the outputs.
-      # If flush_timeout is 0, all available events are forwarded to the
-      # outputs immediately.
-      # The default value is 0s.
-      #flush.timeout: 0s
+# Configure the on-disk event encoding. The encoding can be changed
+# between restarts.
+# Valid encodings are: json, ubjson, and cbor.
+#codec: cbor
+#read:
+# Reader flush timeout, waiting for more events to become available, so
+# to fill a complete batch as required by the outputs.
+# If flush_timeout is 0, all available events are forwarded to the
+# outputs immediately.
+# The default value is 0s.
+#flush.timeout: 0s
 
 # Sets the maximum number of CPUs that can be executing simultaneously. The
 # default is the number of logical CPUs available in the system.
@@ -159,8 +159,8 @@ kafkabeat:
 #
 #   event -> filter1 -> event1 -> filter2 ->event2 ...
 #
-# The supported processors are drop_fields, drop_event, include_fields, and
-# add_cloud_metadata.
+# The supported processors are drop_fields, drop_event, include_fields,
+# decode_json_fields, and add_cloud_metadata.
 #
 # For example, you can use the following processors to keep the fields that
 # contain CPU load percentages, but remove the fields that contain CPU ticks
@@ -188,6 +188,14 @@ kafkabeat:
 #       - from: "a"
 #         to: "b"
 #
+# The following example tokenizes the string into fields:
+#
+#processors:
+#- dissect:
+#    tokenizer: "%{key1} - %{key2}"
+#    field: "message"
+#    target_prefix: "dissect"
+#
 # The following example enriches each event with metadata from the cloud
 # provider about the host machine. It works on EC2, GCE, DigitalOcean,
 # Tencent Cloud, and Alibaba Cloud.
@@ -214,6 +222,7 @@ kafkabeat:
 #    match_source_index: 4
 #    match_short_id: false
 #    cleanup_timeout: 60
+#    labels.dedot: false
 #    # To connect to Docker over TLS you must specify a client and CA certificate.
 #    #ssl:
 #    #  certificate_authority: "/etc/pki/root/ca.pem"
@@ -226,7 +235,31 @@ kafkabeat:
 #
 #processors:
 #- add_docker_metadata: ~
-#- add_host_metadata: ~
+#
+# The following example enriches each event with host metadata.
+#
+#processors:
+#- add_host_metadata:
+#   netinfo.enabled: false
+#
+# The following example enriches each event with process metadata using
+# process IDs included in the event.
+#
+#processors:
+#- add_process_metadata:
+#    match_pids: ["system.process.ppid"]
+#    target: system.process.parent
+#
+# The following example decodes fields containing JSON strings
+# and replaces the strings with valid JSON objects.
+#
+#processors:
+#- decode_json_fields:
+#    fields: ["field1", "field2", ...]
+#    process_array: false
+#    max_depth: 1
+#    target: ""
+#    overwrite_keys: false
 
 #============================= Elastic Cloud ==================================
 
@@ -259,15 +292,18 @@ output.elasticsearch:
   # Set gzip compression level.
   #compression_level: 0
 
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
+
   # Optional protocol and basic auth credentials.
   #protocol: "https"
   #username: "elastic"
   #password: "changeme"
 
-  # Dictionary of HTTP parameters to pass within the url with index operations.
+  # Dictionary of HTTP parameters to pass within the URL with index operations.
   #parameters:
-    #param1: value1
-    #param2: value2
+  #param1: value1
+  #param2: value2
 
   # Number of workers per Elasticsearch host.
   #worker: 1
@@ -275,19 +311,19 @@ output.elasticsearch:
   # Optional index name. The default is "kafkabeat" plus date
   # and generates [kafkabeat-]YYYY.MM.DD keys.
   # In case you modify this pattern you must update setup.template.name and setup.template.pattern accordingly.
-  #index: "kafkabeat-%{[beat.version]}-%{+yyyy.MM.dd}"
+  #index: "kafkabeat-%{[agent.version]}-%{+yyyy.MM.dd}"
 
   # Optional ingest node pipeline. By default no pipeline will be used.
   #pipeline: ""
 
-  # Optional HTTP Path
+  # Optional HTTP path
   #path: "/elasticsearch"
 
   # Custom HTTP headers to add to each request
   #headers:
   #  X-My-Header: Contents of the header
 
-  # Proxy server url
+  # Proxy server URL
   #proxy_url: http://proxy:3128
 
   # The number of times a particular Elasticsearch index operation is attempted. If
@@ -310,39 +346,38 @@ output.elasticsearch:
   # Elasticsearch after a network error. The default is 60s.
   #backoff.max: 60s
 
-  # Configure http request timeout before failing a request to Elasticsearch.
+  # Configure HTTP request timeout before failing a request to Elasticsearch.
   #timeout: 90
 
   # Use SSL settings for HTTPS.
   #ssl.enabled: true
 
   # Configure SSL verification mode. If `none` is configured, all server hosts
-  # and certificates will be accepted. In this mode, SSL based connections are
+  # and certificates will be accepted. In this mode, SSL-based connections are
   # susceptible to man-in-the-middle attacks. Use only for testing. Default is
   # `full`.
   #ssl.verification_mode: full
 
-  # List of supported/valid TLS versions. By default all TLS versions 1.0 up to
+  # List of supported/valid TLS versions. By default all TLS versions from 1.0 up to
   # 1.2 are enabled.
   #ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
 
-  # SSL configuration. By default is off.
   # List of root certificates for HTTPS server verifications
   #ssl.certificate_authorities: ["/etc/pki/root/ca.pem"]
 
   # Certificate for SSL client authentication
   #ssl.certificate: "/etc/pki/client/cert.pem"
 
-  # Client Certificate Key
+  # Client certificate key
   #ssl.key: "/etc/pki/client/cert.key"
 
-  # Optional passphrase for decrypting the Certificate Key.
+  # Optional passphrase for decrypting the certificate key.
   #ssl.key_passphrase: ''
 
   # Configure cipher suites to be used for SSL connections
   #ssl.cipher_suites: []
 
-  # Configure curve types for ECDHE based cipher suites
+  # Configure curve types for ECDHE-based cipher suites
   #ssl.curve_types: []
 
   # Configure what types of renegotiation are supported. Valid options are
@@ -350,8 +385,8 @@ output.elasticsearch:
   #ssl.renegotiation: never
 
 
-#----------------------------- Logstash output ---------------------------------
-#output.logstash:
+  #----------------------------- Logstash output ---------------------------------
+  #output.logstash:
   # Boolean flag to enable or disable the output module.
   #enabled: true
 
@@ -364,6 +399,9 @@ output.elasticsearch:
   # Set gzip compression level.
   #compression_level: 3
 
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
+
   # Optional maximum time to live for a connection to Logstash, after which the
   # connection will be re-established.  A value of `0s` (the default) will
   # disable this feature.
@@ -371,7 +409,7 @@ output.elasticsearch:
   # Not yet supported for async connections (i.e. with the "pipelining" option set)
   #ttl: 30s
 
-  # Optional load balance the events between the Logstash hosts. Default is false.
+  # Optionally load-balance events between Logstash hosts. Default is false.
   #loadbalance: false
 
   # Number of batches to be sent asynchronously to Logstash while processing
@@ -404,7 +442,7 @@ output.elasticsearch:
   # Resolve names locally when using a proxy server. Defaults to false.
   #proxy_use_local_resolver: false
 
-  # Enable SSL support. SSL is automatically enabled, if any SSL setting is set.
+  # Enable SSL support. SSL is automatically enabled if any SSL setting is set.
   #ssl.enabled: true
 
   # Configure SSL verification mode. If `none` is configured, all server hosts
@@ -413,7 +451,7 @@ output.elasticsearch:
   # `full`.
   #ssl.verification_mode: full
 
-  # List of supported/valid TLS versions. By default all TLS versions 1.0 up to
+  # List of supported/valid TLS versions. By default all TLS versions from 1.0 up to
   # 1.2 are enabled.
   #ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
 
@@ -424,7 +462,7 @@ output.elasticsearch:
   # Certificate for SSL client authentication
   #ssl.certificate: "/etc/pki/client/cert.pem"
 
-  # Client Certificate Key
+  # Client certificate key
   #ssl.key: "/etc/pki/client/cert.key"
 
   # Optional passphrase for decrypting the Certificate Key.
@@ -433,19 +471,34 @@ output.elasticsearch:
   # Configure cipher suites to be used for SSL connections
   #ssl.cipher_suites: []
 
-  # Configure curve types for ECDHE based cipher suites
+  # Configure curve types for ECDHE-based cipher suites
   #ssl.curve_types: []
 
   # Configure what types of renegotiation are supported. Valid options are
   # never, once, and freely. Default is never.
   #ssl.renegotiation: never
 
-#------------------------------- Kafka output ----------------------------------
-#output.kafka:
+  # The number of times to retry publishing an event after a publishing failure.
+  # After the specified number of retries, the events are typically dropped.
+  # Some Beats, such as Filebeat and Winlogbeat, ignore the max_retries setting
+  # and retry until all events are published.  Set max_retries to a value less
+  # than 0 to retry until all events are published. The default is 3.
+  #max_retries: 3
+
+  # The maximum number of events to bulk in a single Logstash request. The
+  # default is 2048.
+  #bulk_max_size: 2048
+
+  # The number of seconds to wait for responses from the Logstash server before
+  # timing out. The default is 30s.
+  #timeout: 30s
+
+  #------------------------------- Kafka output ----------------------------------
+  #output.kafka:
   # Boolean flag to enable or disable the output module.
   #enabled: true
 
-  # The list of Kafka broker addresses from where to fetch the cluster metadata.
+  # The list of Kafka broker addresses from which to fetch the cluster metadata.
   # The cluster metadata contain the actual Kafka brokers events are published
   # to.
   #hosts: ["localhost:9092"]
@@ -454,7 +507,7 @@ output.elasticsearch:
   # using any event field. To set the topic from document type use `%{[type]}`.
   #topic: beats
 
-  # The Kafka event key setting. Use format string to create unique event key.
+  # The Kafka event key setting. Use format string to create a unique event key.
   # By default no event key will be generated.
   #key: ''
 
@@ -462,41 +515,51 @@ output.elasticsearch:
   # using the `output.kafka.key` setting or randomly distributes events if
   # `output.kafka.key` is not configured.
   #partition.hash:
-    # If enabled, events will only be published to partitions with reachable
-    # leaders. Default is false.
-    #reachable_only: false
+  # If enabled, events will only be published to partitions with reachable
+  # leaders. Default is false.
+  #reachable_only: false
 
-    # Configure alternative event field names used to compute the hash value.
-    # If empty `output.kafka.key` setting will be used.
-    # Default value is empty list.
-    #hash: []
+  # Configure alternative event field names used to compute the hash value.
+  # If empty `output.kafka.key` setting will be used.
+  # Default value is empty list.
+  #hash: []
 
   # Authentication details. Password is required if username is set.
   #username: ''
   #password: ''
 
-  # Kafka version kafkabeat is assumed to run against. Defaults to the oldest
-  # supported stable version (currently version 0.8.2.0)
-  #version: 0.8.2
+  # Kafka version kafkabeat is assumed to run against. Defaults to the "1.0.0".
+  #version: '1.0.0'
 
-  # Metadata update configuration. Metadata do contain leader information
-  # deciding which broker to use when publishing.
+  # Configure JSON encoding
+  #codec.json:
+  # Pretty-print JSON event
+  #pretty: false
+
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
+
+  # Metadata update configuration. Metadata contains leader information
+  # used to decide which broker to use when publishing.
   #metadata:
-    # Max metadata request retry attempts when cluster is in middle of leader
-    # election. Defaults to 3 retries.
-    #retry.max: 3
+  # Max metadata request retry attempts when cluster is in middle of leader
+  # election. Defaults to 3 retries.
+  #retry.max: 3
 
-    # Waiting time between retries during leader elections. Default is 250ms.
-    #retry.backoff: 250ms
+  # Wait time between retries during leader elections. Default is 250ms.
+  #retry.backoff: 250ms
 
-    # Refresh metadata interval. Defaults to every 10 minutes.
-    #refresh_frequency: 10m
+  # Refresh metadata interval. Defaults to every 10 minutes.
+  #refresh_frequency: 10m
+
+  # Strategy for fetching the topics metadata from the broker. Default is true.
+  #full: true
 
   # The number of concurrent load-balanced Kafka output workers.
   #worker: 1
 
   # The number of times to retry publishing an event after a publishing failure.
-  # After the specified number of retries, the events are typically dropped.
+  # After the specified number of retries, events are typically dropped.
   # Some Beats, such as Filebeat, ignore the max_retries setting and retry until
   # all events are published.  Set max_retries to a value less than 0 to retry
   # until all events are published. The default is 3.
@@ -525,6 +588,10 @@ output.elasticsearch:
   # default is gzip.
   #compression: gzip
 
+  # Set the compression level. Currently only gzip provides a compression level
+  # between 0 and 9. The default value is chosen by the compression algorithm.
+  #compression_level: 4
+
   # The maximum permitted size of JSON-encoded messages. Bigger messages will be
   # dropped. The default value is 1000000 (bytes). This value should be equal to
   # or less than the broker's message.max.bytes.
@@ -540,7 +607,7 @@ output.elasticsearch:
   # purposes.  The default is "beats".
   #client_id: beats
 
-  # Enable SSL support. SSL is automatically enabled, if any SSL setting is set.
+  # Enable SSL support. SSL is automatically enabled if any SSL setting is set.
   #ssl.enabled: true
 
   # Optional SSL configuration options. SSL is off by default.
@@ -553,7 +620,7 @@ output.elasticsearch:
   # `full`.
   #ssl.verification_mode: full
 
-  # List of supported/valid TLS versions. By default all TLS versions 1.0 up to
+  # List of supported/valid TLS versions. By default all TLS versions from 1.0 up to
   # 1.2 are enabled.
   #ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
 
@@ -569,32 +636,36 @@ output.elasticsearch:
   # Configure cipher suites to be used for SSL connections
   #ssl.cipher_suites: []
 
-  # Configure curve types for ECDHE based cipher suites
+  # Configure curve types for ECDHE-based cipher suites
   #ssl.curve_types: []
 
   # Configure what types of renegotiation are supported. Valid options are
   # never, once, and freely. Default is never.
   #ssl.renegotiation: never
 
-#------------------------------- Redis output ----------------------------------
-#output.redis:
+  #------------------------------- Redis output ----------------------------------
+  #output.redis:
   # Boolean flag to enable or disable the output module.
   #enabled: true
 
-  # The list of Redis servers to connect to. If load balancing is enabled, the
+  # Configure JSON encoding
+  #codec.json:
+  # Pretty print json event
+  #pretty: false
+
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
+
+  # The list of Redis servers to connect to. If load-balancing is enabled, the
   # events are distributed to the servers in the list. If one server becomes
   # unreachable, the events are distributed to the reachable servers only.
   #hosts: ["localhost:6379"]
-
-  # The Redis port to use if hosts does not contain a port number. The default
-  # is 6379.
-  #port: 6379
 
   # The name of the Redis list or channel the events are published to. The
   # default is kafkabeat.
   #key: kafkabeat
 
-  # The password to authenticate with. The default is no authentication.
+  # The password to authenticate to Redis with. The default is no authentication.
   #password:
 
   # The Redis database number where the events are published. The default is 0.
@@ -627,6 +698,17 @@ output.elasticsearch:
   # all events are published. Set max_retries to a value less than 0 to retry
   # until all events are published. The default is 3.
   #max_retries: 3
+
+  # The number of seconds to wait before trying to reconnect to Redis
+  # after a network error. After waiting backoff.init seconds, the Beat
+  # tries to reconnect. If the attempt fails, the backoff timer is increased
+  # exponentially up to backoff.max. After a successful connection, the backoff
+  # timer is reset. The default is 1s.
+  #backoff.init: 1s
+
+  # The maximum number of seconds to wait before attempting to connect to
+  # Redis after a network error. The default is 60s.
+  #backoff.max: 60s
 
   # The maximum number of events to bulk in a single Redis request or pipeline.
   # The default is 2048.
@@ -677,10 +759,18 @@ output.elasticsearch:
   # never, once, and freely. Default is never.
   #ssl.renegotiation: never
 
-#------------------------------- File output -----------------------------------
-#output.file:
+  #------------------------------- File output -----------------------------------
+  #output.file:
   # Boolean flag to enable or disable the output module.
   #enabled: true
+
+  # Configure JSON encoding
+  #codec.json:
+  # Pretty-print JSON event
+  #pretty: false
+
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
 
   # Path to the directory where to save the generated files. The option is
   # mandatory.
@@ -704,13 +794,18 @@ output.elasticsearch:
   #permissions: 0600
 
 
-#----------------------------- Console output ---------------------------------
-#output.console:
+  #----------------------------- Console output ---------------------------------
+  #output.console:
   # Boolean flag to enable or disable the output module.
   #enabled: true
 
-  # Pretty print json event
+  # Configure JSON encoding
+  #codec.json:
+  # Pretty-print JSON event
   #pretty: false
+
+  # Configure escaping HTML symbols in strings.
+  #escape_html: false
 
 #================================= Paths ======================================
 
@@ -796,17 +891,33 @@ output.elasticsearch:
 # Set to false to disable template loading.
 #setup.template.enabled: true
 
-# Template name. By default the template name is "kafkabeat-%{[beat.version]}"
-# The template name and pattern has to be set in case the elasticsearch index pattern is modified.
-#setup.template.name: "kafkabeat-%{[beat.version]}"
+# Template name. By default the template name is "kafkabeat-%{[agent.version]}"
+# The template name and pattern has to be set in case the Elasticsearch index pattern is modified.
+#setup.template.name: "kafkabeat-%{[agent.version]}"
 
-# Template pattern. By default the template pattern is "-%{[beat.version]}-*" to apply to the default index settings.
+# Template pattern. By default the template pattern is "-%{[agent.version]}-*" to apply to the default index settings.
 # The first part is the version of the beat and then -* is used to match all daily indices.
-# The template name and pattern has to be set in case the elasticsearch index pattern is modified.
-#setup.template.pattern: "kafkabeat-%{[beat.version]}-*"
+# The template name and pattern has to be set in case the Elasticsearch index pattern is modified.
+#setup.template.pattern: "kafkabeat-%{[agent.version]}-*"
 
 # Path to fields.yml file to generate the template
 #setup.template.fields: "${path.config}/fields.yml"
+
+# A list of fields to be added to the template and Kibana index pattern. Also
+# specify setup.template.overwrite: true to overwrite the existing template.
+# This setting is experimental.
+#setup.template.append_fields:
+#- name: field_name
+#  type: field_type
+
+# Enable JSON template loading. If this is enabled, the fields.yml is ignored.
+#setup.template.json.enabled: false
+
+# Path to the JSON template file
+#setup.template.json.path: "${path.config}/template.json"
+
+# Name under which the template is stored in Elasticsearch
+#setup.template.json.name: ""
 
 # Overwrite existing template
 #setup.template.overwrite: false
@@ -814,18 +925,37 @@ output.elasticsearch:
 # Elasticsearch template settings
 setup.template.settings:
 
-  # A dictionary of settings to place into the settings.index dictionary
-  # of the Elasticsearch template. For more details, please check
-  # https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html
-  #index:
-    #number_of_shards: 1
-    #codec: best_compression
-    #number_of_routing_shards: 30
+# A dictionary of settings to place into the settings.index dictionary
+# of the Elasticsearch template. For more details, please check
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html
+#index:
+#number_of_shards: 1
+#codec: best_compression
+#number_of_routing_shards: 30
 
-  # A dictionary of settings for the _source field. For more details, please check
-  # https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-source-field.html
-  #_source:
-    #enabled: false
+# A dictionary of settings for the _source field. For more details, please check
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-source-field.html
+#_source:
+#enabled: false
+
+#============================== Setup ILM =====================================
+
+# Configure Index Lifecycle Management Index Lifecycle Management creates a
+# write alias and adds additional settings to the template.
+# The elasticsearch.output.index setting will be replaced with the write alias
+# if ILM is enabled.
+
+# Enabled ILM support. Valid values are true, false, and auto. The beat will
+# detect availabilty of Index Lifecycle Management in Elasticsearch and enable
+# or disable ILM support.
+#setup.ilm.enabled: auto
+
+# Configure the ILM write alias name.
+#setup.ilm.rollover_alias: "kafkabeat"
+
+# Configure rollover index pattern.
+#setup.ilm.pattern: "{now/d}-000001"
+
 
 #============================== Kibana =====================================
 
@@ -833,51 +963,51 @@ setup.template.settings:
 # This requires a Kibana endpoint configuration.
 setup.kibana:
 
-  # Kibana Host
-  # Scheme and port can be left out and will be set to the default (http and 5601)
-  # In case you specify and additional path, the scheme is required: http://localhost:5601/path
-  # IPv6 addresses should always be defined as: https://[2001:db8::1]:5601
-  #host: "localhost:5601"
+# Kibana Host
+# Scheme and port can be left out and will be set to the default (http and 5601)
+# In case you specify and additional path, the scheme is required: http://localhost:5601/path
+# IPv6 addresses should always be defined as: https://[2001:db8::1]:5601
+#host: "localhost:5601"
 
-  # Optional protocol and basic auth credentials.
-  #protocol: "https"
-  #username: "elastic"
-  #password: "changeme"
+# Optional protocol and basic auth credentials.
+#protocol: "https"
+#username: "elastic"
+#password: "changeme"
 
-  # Optional HTTP Path
-  #path: ""
+# Optional HTTP path
+#path: ""
 
-  # Use SSL settings for HTTPS. Default is true.
-  #ssl.enabled: true
+# Use SSL settings for HTTPS. Default is true.
+#ssl.enabled: true
 
-  # Configure SSL verification mode. If `none` is configured, all server hosts
-  # and certificates will be accepted. In this mode, SSL based connections are
-  # susceptible to man-in-the-middle attacks. Use only for testing. Default is
-  # `full`.
-  #ssl.verification_mode: full
+# Configure SSL verification mode. If `none` is configured, all server hosts
+# and certificates will be accepted. In this mode, SSL based connections are
+# susceptible to man-in-the-middle attacks. Use only for testing. Default is
+# `full`.
+#ssl.verification_mode: full
 
-  # List of supported/valid TLS versions. By default all TLS versions 1.0 up to
-  # 1.2 are enabled.
-  #ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
+# List of supported/valid TLS versions. By default all TLS versions from 1.0 up to
+# 1.2 are enabled.
+#ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
 
-  # SSL configuration. By default is off.
-  # List of root certificates for HTTPS server verifications
-  #ssl.certificate_authorities: ["/etc/pki/root/ca.pem"]
+# SSL configuration. The default is off.
+# List of root certificates for HTTPS server verifications
+#ssl.certificate_authorities: ["/etc/pki/root/ca.pem"]
 
-  # Certificate for SSL client authentication
-  #ssl.certificate: "/etc/pki/client/cert.pem"
+# Certificate for SSL client authentication
+#ssl.certificate: "/etc/pki/client/cert.pem"
 
-  # Client Certificate Key
-  #ssl.key: "/etc/pki/client/cert.key"
+# Client certificate key
+#ssl.key: "/etc/pki/client/cert.key"
 
-  # Optional passphrase for decrypting the Certificate Key.
-  #ssl.key_passphrase: ''
+# Optional passphrase for decrypting the certificate key.
+#ssl.key_passphrase: ''
 
-  # Configure cipher suites to be used for SSL connections
-  #ssl.cipher_suites: []
+# Configure cipher suites to be used for SSL connections
+#ssl.cipher_suites: []
 
-  # Configure curve types for ECDHE based cipher suites
-  #ssl.curve_types: []
+# Configure curve types for ECDHE-based cipher suites
+#ssl.curve_types: []
 
 
 
@@ -913,25 +1043,32 @@ setup.kibana:
 # files.
 logging.to_files: true
 logging.files:
-  # Configure the path where the logs are written. The default is the logs directory
-  # under the home path (the binary location).
-  #path: /var/log/kafkabeat
+# Configure the path where the logs are written. The default is the logs directory
+# under the home path (the binary location).
+#path: /var/log/kafkabeat
 
-  # The name of the files where the logs are written to.
-  #name: kafkabeat
+# The name of the files where the logs are written to.
+#name: kafkabeat
 
-  # Configure log file size limit. If limit is reached, log file will be
-  # automatically rotated
-  #rotateeverybytes: 10485760 # = 10MB
+# Configure log file size limit. If limit is reached, log file will be
+# automatically rotated
+#rotateeverybytes: 10485760 # = 10MB
 
-  # Number of rotated log files to keep. Oldest files will be deleted first.
-  #keepfiles: 7
+# Number of rotated log files to keep. Oldest files will be deleted first.
+#keepfiles: 7
 
-  # The permissions mask to apply when rotating log files. The default value is 0600.
-  # Must be a valid Unix-style file permissions mask expressed in octal notation.
-  #permissions: 0600
+# The permissions mask to apply when rotating log files. The default value is 0600.
+# Must be a valid Unix-style file permissions mask expressed in octal notation.
+#permissions: 0600
 
-# Set to true to log messages in json format.
+# Enable log file rotation on time intervals in addition to size-based rotation.
+# Intervals must be at least 1s. Values of 1m, 1h, 24h, 7*24h, 30*24h, and 365*24h
+# are boundary-aligned with minutes, hours, days, weeks, months, and years as
+# reported by the local system clock. All other intervals are calculated from the
+# Unix epoch. Defaults to disabled.
+#interval: 0
+
+# Set to true to log messages in JSON format.
 #logging.json: false
 
 
@@ -950,79 +1087,93 @@ logging.files:
 # following line, and leave the rest commented out.
 #xpack.monitoring.elasticsearch:
 
-  # Array of hosts to connect to.
-  # Scheme and port can be left out and will be set to the default (http and 9200)
-  # In case you specify and additional path, the scheme is required: http://localhost:9200/path
-  # IPv6 addresses should always be defined as: https://[2001:db8::1]:9200
-  #hosts: ["localhost:9200"]
+# Array of hosts to connect to.
+# Scheme and port can be left out and will be set to the default (http and 9200)
+# In case you specify and additional path, the scheme is required: http://localhost:9200/path
+# IPv6 addresses should always be defined as: https://[2001:db8::1]:9200
+#hosts: ["localhost:9200"]
 
-  # Set gzip compression level.
-  #compression_level: 0
+# Set gzip compression level.
+#compression_level: 0
 
-  # Optional protocol and basic auth credentials.
-  #protocol: "https"
-  #username: "beats_system"
-  #password: "changeme"
+# Optional protocol and basic auth credentials.
+#protocol: "https"
+#username: "beats_system"
+#password: "changeme"
 
-  # Dictionary of HTTP parameters to pass within the url with index operations.
-  #parameters:
-    #param1: value1
-    #param2: value2
+# Dictionary of HTTP parameters to pass within the URL with index operations.
+#parameters:
+#param1: value1
+#param2: value2
 
-  # Custom HTTP headers to add to each request
-  #headers:
-  #  X-My-Header: Contents of the header
+# Custom HTTP headers to add to each request
+#headers:
+#  X-My-Header: Contents of the header
 
-  # Proxy server url
-  #proxy_url: http://proxy:3128
+# Proxy server url
+#proxy_url: http://proxy:3128
 
-  # The number of times a particular Elasticsearch index operation is attempted. If
-  # the indexing operation doesn't succeed after this many retries, the events are
-  # dropped. The default is 3.
-  #max_retries: 3
+# The number of times a particular Elasticsearch index operation is attempted. If
+# the indexing operation doesn't succeed after this many retries, the events are
+# dropped. The default is 3.
+#max_retries: 3
 
-  # The maximum number of events to bulk in a single Elasticsearch bulk API index request.
-  # The default is 50.
-  #bulk_max_size: 50
+# The maximum number of events to bulk in a single Elasticsearch bulk API index request.
+# The default is 50.
+#bulk_max_size: 50
 
-  # Configure http request timeout before failing an request to Elasticsearch.
-  #timeout: 90
+# The number of seconds to wait before trying to reconnect to Elasticsearch
+# after a network error. After waiting backoff.init seconds, the Beat
+# tries to reconnect. If the attempt fails, the backoff timer is increased
+# exponentially up to backoff.max. After a successful connection, the backoff
+# timer is reset. The default is 1s.
+#backoff.init: 1s
 
-  # Use SSL settings for HTTPS.
-  #ssl.enabled: true
+# The maximum number of seconds to wait before attempting to connect to
+# Elasticsearch after a network error. The default is 60s.
+#backoff.max: 60s
 
-  # Configure SSL verification mode. If `none` is configured, all server hosts
-  # and certificates will be accepted. In this mode, SSL based connections are
-  # susceptible to man-in-the-middle attacks. Use only for testing. Default is
-  # `full`.
-  #ssl.verification_mode: full
+# Configure HTTP request timeout before failing an request to Elasticsearch.
+#timeout: 90
 
-  # List of supported/valid TLS versions. By default all TLS versions 1.0 up to
-  # 1.2 are enabled.
-  #ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
+# Use SSL settings for HTTPS.
+#ssl.enabled: true
 
-  # SSL configuration. By default is off.
-  # List of root certificates for HTTPS server verifications
-  #ssl.certificate_authorities: ["/etc/pki/root/ca.pem"]
+# Configure SSL verification mode. If `none` is configured, all server hosts
+# and certificates will be accepted. In this mode, SSL based connections are
+# susceptible to man-in-the-middle attacks. Use only for testing. Default is
+# `full`.
+#ssl.verification_mode: full
 
-  # Certificate for SSL client authentication
-  #ssl.certificate: "/etc/pki/client/cert.pem"
+# List of supported/valid TLS versions. By default all TLS versions from 1.0 up to
+# 1.2 are enabled.
+#ssl.supported_protocols: [TLSv1.0, TLSv1.1, TLSv1.2]
 
-  # Client Certificate Key
-  #ssl.key: "/etc/pki/client/cert.key"
+# SSL configuration. The default is off.
+# List of root certificates for HTTPS server verifications
+#ssl.certificate_authorities: ["/etc/pki/root/ca.pem"]
 
-  # Optional passphrase for decrypting the Certificate Key.
-  #ssl.key_passphrase: ''
+# Certificate for SSL client authentication
+#ssl.certificate: "/etc/pki/client/cert.pem"
 
-  # Configure cipher suites to be used for SSL connections
-  #ssl.cipher_suites: []
+# Client certificate key
+#ssl.key: "/etc/pki/client/cert.key"
 
-  # Configure curve types for ECDHE based cipher suites
-  #ssl.curve_types: []
+# Optional passphrase for decrypting the certificate key.
+#ssl.key_passphrase: ''
 
-  # Configure what types of renegotiation are supported. Valid options are
-  # never, once, and freely. Default is never.
-  #ssl.renegotiation: never
+# Configure cipher suites to be used for SSL connections
+#ssl.cipher_suites: []
+
+# Configure curve types for ECDHE-based cipher suites
+#ssl.curve_types: []
+
+# Configure what types of renegotiation are supported. Valid options are
+# never, once, and freely. Default is never.
+#ssl.renegotiation: never
+
+#metrics.period: 10s
+#state.period: 1m
 
 #================================ HTTP Endpoint ======================================
 # Each beat can expose internal metrics through a HTTP endpoint. For security
@@ -1038,3 +1189,13 @@ logging.files:
 
 # Port on which the HTTP endpoint will bind. Default is 5066.
 #http.port: 5066
+
+#============================= Process Security ================================
+
+# Enable or disable seccomp system call filtering on Linux. Default is enabled.
+#seccomp.enabled: true
+
+#================================= Migration ==================================
+
+# This allows to enable 6.7 migration aliases
+#migration.6_to_7.enabled: false

@@ -20,34 +20,101 @@
 package stats
 
 import (
+	"encoding/json"
+	"io/ioutil"
+	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+
+	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/tests/compose"
+
 	mbtest "github.com/elastic/beats/metricbeat/mb/testing"
+	"github.com/elastic/beats/metricbeat/module/kibana"
 	"github.com/elastic/beats/metricbeat/module/kibana/mtest"
 )
 
+func TestFetch(t *testing.T) {
+	compose.EnsureUpWithTimeout(t, 600, "elasticsearch", "kibana")
+
+	config := mtest.GetConfig("stats")
+	host := config["hosts"].([]string)[0]
+	version, err := getKibanaVersion(t, host)
+	if err != nil {
+		t.Fatal("getting kibana version", err)
+	}
+
+	isStatsAPIAvailable := kibana.IsStatsAPIAvailable(version)
+	if err != nil {
+		t.Fatal("checking if kibana stats API is available", err)
+	}
+
+	if !isStatsAPIAvailable {
+		t.Skip("Kibana stats API is not available until 6.4.0")
+	}
+
+	f := mbtest.NewReportingMetricSetV2(t, config)
+	events, errs := mbtest.ReportingFetchV2(f)
+
+	assert.Empty(t, errs)
+	if !assert.NotEmpty(t, events) {
+		t.FailNow()
+	}
+
+	t.Logf("%s/%s event: %+v", f.Module().Name(), f.Name(),
+		events[0].BeatEvent("kibana", "stats").Fields.StringToPrint())
+}
+
 func TestData(t *testing.T) {
-	t.Skip("Skipping until we find a way to conditionally skip this for Kibana < 6.4.0") // FIXME
 	compose.EnsureUp(t, "kibana")
 
-	f := mbtest.NewReportingMetricSetV2(t, mtest.GetConfig("stats"))
+	config := mtest.GetConfig("stats")
+	host := config["hosts"].([]string)[0]
+	version, err := getKibanaVersion(t, host)
+	if err != nil {
+		t.Fatal("getting kibana version", err)
+	}
 
-	// FIXME! See skip above
-	// version, err := kibana.GetVersion(f.http, "api/stats")
-	// if err != nil {
-	// 	t.Fatal("getting kibana version", err)
-	// }
+	isStatsAPIAvailable := kibana.IsStatsAPIAvailable(version)
+	if err != nil {
+		t.Fatal("checking if kibana stats API is available", err)
+	}
 
-	// isStatsAPIAvailable, err := kibana.IsStatsAPIAvailable(version)
-	// if err != nil {
-	// 	t.Fatal("checking if kibana stats API is available", err)
-	// }
+	if !isStatsAPIAvailable {
+		t.Skip("Kibana stats API is not available until 6.4.0")
+	}
 
-	// t.Skip("Kibana stats API is not available until 6.4.0")
-
-	err := mbtest.WriteEventsReporterV2(f, t, "")
+	f := mbtest.NewReportingMetricSetV2(t, config)
+	err = mbtest.WriteEventsReporterV2(f, t, "")
 	if err != nil {
 		t.Fatal("write", err)
 	}
+}
+
+func getKibanaVersion(t *testing.T, kibanaHostPort string) (*common.Version, error) {
+	resp, err := http.Get("http://" + kibanaHostPort + "/api/status")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var data common.MapStr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return nil, err
+	}
+
+	version, err := data.GetValue("version.number")
+	if err != nil {
+		t.Log("Kibana GET /api/status response:", string(body))
+		return nil, err
+	}
+
+	return common.NewVersion(version.(string))
 }

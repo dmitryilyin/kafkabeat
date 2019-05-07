@@ -1,7 +1,25 @@
+// Licensed to Elasticsearch B.V. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. Elasticsearch B.V. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package pq
 
 import (
 	"math/rand"
+	"testing"
 
 	"github.com/elastic/go-txfile"
 	"github.com/elastic/go-txfile/internal/cleanup"
@@ -29,6 +47,10 @@ func exactly(n int) testRange        { return testRange{n, n} }
 func between(min, max int) testRange { return testRange{min, max} }
 
 func setupQueue(t *mint.T, cfg config) (*testQueue, func()) {
+	if testing.Short() {
+		cfg.File.Sync = txfile.SyncNone
+	}
+
 	tf, teardown := txfiletest.SetupTestFile(t.T, cfg.File)
 
 	ok := false
@@ -85,16 +107,32 @@ func (q *testQueue) Close() {
 }
 
 func (q *testQueue) len() int {
-	return int(q.Reader().Available())
+	reader := q.Reader()
+	q.t.FatalOnError(reader.Begin())
+	defer reader.Done()
+
+	i, err := q.Reader().Available()
+	q.t.NoError(err)
+	return int(i)
 }
 
 func (q *testQueue) append(events ...string) {
-	w := q.Queue.Writer()
+	w, err := q.Queue.Writer()
+	q.t.FatalOnError(err)
+
 	for _, event := range events {
 		_, err := w.Write([]byte(event))
 		q.t.FatalOnError(err)
 		q.t.FatalOnError(w.Next())
 	}
+}
+
+func (q *testQueue) readWith(fn func(*Reader)) {
+	r := q.Reader()
+	q.t.FatalOnError(r.Begin())
+	defer r.Done()
+
+	fn(r)
 }
 
 // read reads up to n events from the queue.
@@ -104,15 +142,19 @@ func (q *testQueue) read(n int) []string {
 		out = make([]string, 0, n)
 	}
 
+	reader := q.Reader()
+	q.t.FatalOnError(reader.Begin())
+	defer reader.Done()
+
 	for n < 0 || len(out) < n {
-		sz, err := q.Reader().Next()
+		sz, err := reader.Next()
 		q.t.FatalOnError(err)
 		if sz <= 0 {
 			break
 		}
 
 		buf := make([]byte, sz)
-		_, err = q.Reader().Read(buf)
+		_, err = reader.Read(buf)
 		q.t.FatalOnError(err)
 
 		out = append(out, string(buf))
@@ -121,7 +163,10 @@ func (q *testQueue) read(n int) []string {
 }
 
 func (q *testQueue) flush() {
-	err := q.Queue.Writer().Flush()
+	w, err := q.Queue.Writer()
+	q.t.FatalOnError(err)
+
+	err = w.Flush()
 	q.t.NoError(err)
 }
 

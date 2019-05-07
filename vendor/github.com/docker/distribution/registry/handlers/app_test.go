@@ -188,8 +188,8 @@ func TestNewApp(t *testing.T) {
 		t.Fatalf("unexpected status code during request: %v", err)
 	}
 
-	if req.Header.Get("Content-Type") != "application/json; charset=utf-8" {
-		t.Fatalf("unexpected content-type: %v != %v", req.Header.Get("Content-Type"), "application/json; charset=utf-8")
+	if req.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("unexpected content-type: %v != %v", req.Header.Get("Content-Type"), "application/json")
 	}
 
 	expectedAuthHeader := "Bearer realm=\"realm-test\",service=\"service-test\""
@@ -229,9 +229,9 @@ func TestAppendAccessRecords(t *testing.T) {
 		Resource: expectedResource,
 		Action:   "push",
 	}
-	expectedAllRecord := auth.Access{
+	expectedDeleteRecord := auth.Access{
 		Resource: expectedResource,
-		Action:   "*",
+		Action:   "delete",
 	}
 
 	records := []auth.Access{}
@@ -271,7 +271,7 @@ func TestAppendAccessRecords(t *testing.T) {
 
 	records = []auth.Access{}
 	result = appendAccessRecords(records, "DELETE", repo)
-	expectedResult = []auth.Access{expectedAllRecord}
+	expectedResult = []auth.Access{expectedDeleteRecord}
 	if ok := reflect.DeepEqual(result, expectedResult); !ok {
 		t.Fatalf("Actual access record differs from expected")
 	}

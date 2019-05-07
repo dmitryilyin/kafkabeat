@@ -6,8 +6,8 @@ related products:
 * {kib} for the UI.
 * {ls} (optional) for parsing and enhancing the data.
 
-See {stack-ov}/get-started-elastic-stack.html[Getting started with the {stack}]
-for more information.
+See {stack-gs}/get-started-elastic-stack.html[Getting started with the {stack}]
+for more information about installing these products.
 
 [TIP]
 ==============

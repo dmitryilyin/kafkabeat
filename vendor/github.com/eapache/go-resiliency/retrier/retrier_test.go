@@ -1,6 +1,8 @@
 package retrier
 
 import (
+	"context"
+	"errors"
 	"testing"
 	"time"
 )
@@ -15,6 +17,19 @@ func genWork(returns []error) func() error {
 			return nil
 		}
 		return returns[i-1]
+	}
+}
+
+func genWorkWithCtx() func(ctx context.Context) error {
+	i = 0
+	return func(ctx context.Context) error {
+		select {
+		case <-ctx.Done():
+			return errFoo
+		default:
+			i++
+		}
+		return nil
 	}
 }
 
@@ -42,6 +57,30 @@ func TestRetrier(t *testing.T) {
 		t.Error(err)
 	}
 	if i != 1 {
+		t.Error("run wrong number of times")
+	}
+}
+
+func TestRetrierCtx(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	r := New([]time.Duration{0, 10 * time.Millisecond}, WhitelistClassifier{})
+
+	err := r.RunCtx(ctx, genWorkWithCtx())
+	if err != nil {
+		t.Error(err)
+	}
+	if i != 1 {
+		t.Error("run wrong number of times")
+	}
+
+	cancel()
+
+	err = r.RunCtx(ctx, genWorkWithCtx())
+	if err != errFoo {
+		t.Error("context must be cancelled")
+	}
+	if i != 0 {
 		t.Error("run wrong number of times")
 	}
 }
@@ -112,6 +151,17 @@ func TestRetrierJitter(t *testing.T) {
 	r.SetJitter(2)
 	if r.jitter != 0.25 {
 		t.Error("Invalid jitter value accepted")
+	}
+}
+
+func TestRetrierThreadSafety(t *testing.T) {
+	r := New([]time.Duration{0}, nil)
+	for i := 0; i < 2; i++ {
+		go func() {
+			r.Run(func() error {
+				return errors.New("error")
+			})
+		}()
 	}
 }
 

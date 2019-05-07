@@ -1,9 +1,10 @@
-package layer
+package layer // import "github.com/docker/docker/layer"
 
 import (
 	"io"
 
 	"github.com/docker/docker/pkg/archive"
+	"github.com/docker/docker/pkg/containerfs"
 )
 
 type mountedLayer struct {
@@ -88,7 +89,7 @@ type referencedRWLayer struct {
 	*mountedLayer
 }
 
-func (rl *referencedRWLayer) Mount(mountLabel string) (string, error) {
+func (rl *referencedRWLayer) Mount(mountLabel string) (containerfs.ContainerFS, error) {
 	return rl.layerStore.driver.Get(rl.mountedLayer.mountID, mountLabel)
 }
 
@@ -96,4 +97,9 @@ func (rl *referencedRWLayer) Mount(mountLabel string) (string, error) {
 // Callers should only call `Unmount` once per call to `Mount`, even on error.
 func (rl *referencedRWLayer) Unmount() error {
 	return rl.layerStore.driver.Put(rl.mountedLayer.mountID)
+}
+
+// ApplyDiff applies specified diff to the layer
+func (rl *referencedRWLayer) ApplyDiff(diff io.Reader) (int64, error) {
+	return rl.layerStore.driver.ApplyDiff(rl.mountID, rl.cacheParent(), diff)
 }

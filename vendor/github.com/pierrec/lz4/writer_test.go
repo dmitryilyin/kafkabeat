@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"os"
 	"reflect"
 	"testing"
 
@@ -16,6 +17,7 @@ func TestWriter(t *testing.T) {
 		"testdata/e.txt",
 		"testdata/gettysburg.txt",
 		"testdata/Mark.Twain-Tom.Sawyer.txt",
+		"testdata/Mark.Twain-Tom.Sawyer_long.txt",
 		"testdata/pg1661.txt",
 		"testdata/pi.txt",
 		"testdata/random.data",
@@ -74,5 +76,49 @@ func TestWriter(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestIssue41(t *testing.T) {
+	r, w := io.Pipe()
+	zw := lz4.NewWriter(w)
+	zr := lz4.NewReader(r)
+
+	data := "x"
+	go func() {
+		_, _ = fmt.Fprint(zw, data)
+		_ = zw.Flush()
+		_ = zw.Close()
+		_ = w.Close()
+	}()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(zr)
+	if got, want := buf.String(), data; got != want {
+		t.Fatal("uncompressed data does not match original")
+	}
+}
+
+func TestIssue43(t *testing.T) {
+	r, w := io.Pipe()
+	go func() {
+		defer w.Close()
+
+		f, err := os.Open("testdata/issue43.data")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close()
+
+		zw := lz4.NewWriter(w)
+		defer zw.Close()
+
+		_, err = io.Copy(zw, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}()
+	_, err := io.Copy(ioutil.Discard, lz4.NewReader(r))
+	if err != nil {
+		t.Fatal(err)
 	}
 }

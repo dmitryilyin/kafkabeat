@@ -1,11 +1,31 @@
+// Licensed to Elasticsearch B.V. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. Elasticsearch B.V. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package txfile
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/elastic/go-txfile/internal/cleanup"
+	"github.com/elastic/go-txfile/internal/vfs/osfs/osfstest"
 )
 
 type testFile struct {
@@ -13,6 +33,19 @@ type testFile struct {
 	path   string
 	assert *assertions
 	opts   Options
+
+	// validation overwrites
+	disableEndMarkerCheck bool // disable checking file end markers against max size
+}
+
+// global bools with randomized order
+var bools [2]bool
+
+func init() {
+	now := time.Now().Unix()
+	rng := rand.New(rand.NewSource(now))
+
+	bools[rng.Intn(2)] = true
 }
 
 func TestTxFile(t *testing.T) {
@@ -49,7 +82,8 @@ func TestTxFile(t *testing.T) {
 			title := fmt.Sprintf("min=%v,max=%v,expected=%v", min, max, expected)
 
 			assert.Run(title, func(assert *assertions) {
-				if expected > uint64(maxUint) {
+				fmt.Printf("maxUint: %v, expected: %v\n", maxUint, expected)
+				if expected > uint64(maxMmapSize) {
 					assert.Skip("unsatisfyable tests on 32bit system")
 				}
 
@@ -64,6 +98,7 @@ func TestTxFile(t *testing.T) {
 		path, teardown := setupPath(assert, "")
 		defer teardown()
 
+		assert.Log("create and close file")
 		f, err := Open(path, os.ModePerm, Options{
 			MaxSize:  10 * 1 << 20, // 10MB
 			PageSize: 4096,
@@ -73,6 +108,7 @@ func TestTxFile(t *testing.T) {
 
 		// check if we can re-open the file:
 
+		assert.Log("open and close existing file")
 		f, err = Open(path, os.ModePerm, Options{})
 		assert.FatalOnError(err)
 		assert.NoError(f.Close())
@@ -119,6 +155,72 @@ func TestTxFile(t *testing.T) {
 		page, err := tx.Alloc()
 		assert.Nil(page)
 		assert.Error(err)
+	})
+
+	assert.Run("pre-allocate meta area", func(assert *assertions) {
+		assert.Run("available pages do not exceeds total number of pages", func(assert *assertions) {
+			const (
+				totalPages = 100
+				metaArea   = 64
+				dataArea   = totalPages - metaArea - 2
+			)
+			f, teardown := setupTestFile(assert, Options{
+				PageSize:     4096,
+				MaxSize:      totalPages * 4096,
+				InitMetaArea: metaArea,
+			})
+			defer teardown()
+
+			f.withTx(true, func(tx *Tx) {
+				// Allocate all available data pages.
+				_, err := tx.AllocN(dataArea)
+				assert.FatalOnError(err)
+
+				// Allocating more pages must fail, due to most space being used by the
+				// meta area.
+				_, err = tx.Alloc()
+				assert.Error(err)
+			})
+		})
+
+		assert.Run("check meta area is used", func(assert *assertions) {
+			/* Allocate all data pages and free some, forcing the file to create a
+			 * new freelist, that must be written to the existing meta area. Trying to
+			 * allocate more pages from the data area into the meta area would fail
+			 * with OOM.
+			 */
+
+			const (
+				totalPages = 100
+				metaPages  = 2
+				metaArea   = 64
+				dataArea   = totalPages - metaArea - metaPages
+			)
+			f, teardown := setupTestFile(assert, Options{
+				PageSize:     4096,
+				MaxSize:      totalPages * 4096,
+				InitMetaArea: metaArea,
+			})
+			defer teardown()
+
+			// allocate all free space
+			f.withTx(true, func(tx *Tx) {
+				_, err := tx.AllocN(dataArea)
+				assert.FatalOnError(err)
+				assert.FatalOnError(tx.Commit())
+			})
+
+			// return some pages, forcing a freelist update
+			f.withTx(true, func(tx *Tx) {
+				// find ID in middle of allocated data area
+				page, err := tx.Page(metaArea + metaPages + 5)
+				assert.FatalOnError(err)
+				page.Free()
+
+				assert.FatalOnError(tx.Commit())
+			})
+
+		})
 	})
 
 	assert.Run("write transaction with modifications on new file with rollback", func(assert *assertions) {
@@ -449,12 +551,409 @@ func TestTxFile(t *testing.T) {
 	})
 }
 
+func TestResizeFile(t *testing.T) {
+	assert := newAssertions(t)
+
+	type (
+		st struct {
+			allocated pageSet
+		}
+
+		op func(f *testFile, st *st)
+
+		scenario struct {
+			opts Options
+			ops  []op
+		}
+	)
+
+	noop := func(_ *testFile, _ *st) {}
+
+	opt := func(b bool, o op) op {
+		if b {
+			return o
+		}
+		return noop
+	}
+
+	allocateAll := func(f *testFile, st *st) {
+		var ids pageSet
+		f.assert.Log("Allocate all available pages")
+		f.withTx(true, func(tx *Tx) {
+			for {
+				page, err := tx.Alloc()
+				if err != nil {
+					break
+				}
+				ids.Add(page.ID())
+			}
+
+			assert.NoError(tx.Commit())
+		})
+
+		st.allocated.AddSet(ids)
+	}
+
+	allocate := func(n int, success bool) op {
+		return func(f *testFile, st *st) {
+			if success {
+				f.assert.Logf("Must Allocate %v pages", n)
+			} else {
+				f.assert.Logf("Try to allocate %v pages, expecting a failure", n)
+			}
+
+			f.withTx(true, func(tx *Tx) {
+				pages, err := tx.AllocN(n)
+				if success && err != nil {
+					f.assert.FatalOnError(err)
+				}
+				if !success && err == nil {
+					f.assert.Fatal("Expected allocation to fail")
+				}
+
+				var ids pageSet
+				for _, page := range pages {
+					ids.Add(page.ID())
+				}
+
+				f.assert.FatalOnError(tx.Commit())
+
+				st.allocated.AddSet(ids)
+			})
+		}
+	}
+
+	releasePages := func(ids idList) op {
+		return func(f *testFile, st *st) {
+			f.assert.Logf("release %v pages", len(ids))
+			for _, id := range ids {
+				if !st.allocated.Has(id) {
+					panic(fmt.Errorf("incorrect test, trying to free unallocated page %v", id))
+				}
+			}
+
+			f.withTx(true, func(tx *Tx) {
+				for _, id := range ids {
+					page, err := tx.Page(id)
+					f.assert.FatalOnError(err)
+
+					page.Free()
+				}
+
+				f.assert.FatalOnError(tx.Commit())
+			})
+
+			for _, id := range ids {
+				st.allocated.Remove(id)
+			}
+		}
+	}
+
+	/* reopenFile := func(f *testFile, _ *st) {
+		  f.assert.Logf("reopen file")
+		  f.Reopen()
+	  } */
+	closeFile := func(f *testFile, _ *st) {
+		f.assert.Logf("close test file")
+		f.Close()
+	}
+	openWith := func(opts Options) op {
+		return func(f *testFile, _ *st) {
+			f.assert.Logf("open test file with %#v", opts)
+			f.OpenWith(opts)
+		}
+	}
+	reopenWith := func(opts Options) op {
+		open := openWith(opts)
+		return func(f *testFile, st *st) {
+			closeFile(f, st)
+			open(f, st)
+		}
+	}
+	optReopenWith := func(reopen bool, opts Options) op {
+		return opt(reopen, reopenWith(opts))
+	}
+
+	checkSize := func(expected int64) op {
+		return func(f *testFile, st *st) {
+			f.assert.Equal(expected, f.size)
+		}
+	}
+
+	runScenario := func(assert *assertions, scenario scenario) {
+		assert.Logf("create file with: %#v", scenario.opts)
+
+		f, teardown := setupTestFile(assert, scenario.opts)
+		defer teardown()
+
+		// disable end marker checks on validation, as resizing files can
+		// temporary violate the endMarker <= maxSize invariant.
+		f.disableEndMarkerCheck = true
+
+		var st st
+		for _, op := range scenario.ops {
+			op(f, &st)
+		}
+	}
+
+	runScenarios := func(assert *assertions, scenarios map[string]scenario) {
+		for name, scenario := range scenarios {
+			assert.Run(name, func(assert *assertions) {
+				runScenario(assert, scenario)
+			})
+		}
+	}
+
+	assert.Run("grow file on re-open", func(assert *assertions) {
+		pageSize := uint(4096)
+		initSize := 50 * pageSize
+
+		cases := map[string]uint{
+			"new limit":     2 * initSize,
+			"same max size": initSize,
+			"unbound limit": 0,
+		}
+
+		for _, reopen := range bools {
+			reopen := reopen
+			assert.Run(fmt.Sprintf("reopen:%v", reopen), func(assert *assertions) {
+				for _, prealloc := range bools {
+					prealloc := prealloc
+					assert.Run(fmt.Sprintf("prealloc:%v", prealloc), func(assert *assertions) {
+						scenarios := map[string]scenario{}
+						for name, sz := range cases {
+							canAllocMore := sz == 0 || sz > initSize
+							expectedSz := sz
+							if expectedSz == 0 {
+								expectedSz = initSize
+							}
+
+							scenarios[name] = scenario{
+								opts: Options{
+									MaxSize:  uint64(initSize),
+									PageSize: uint32(pageSize),
+									Prealloc: prealloc,
+								},
+								ops: []op{
+									allocateAll,
+
+									// resize
+									closeFile,
+									openWith(Options{
+										MaxSize:  uint64(sz),
+										PageSize: uint32(pageSize),
+										Flags:    FlagUpdMaxSize,
+										Prealloc: prealloc,
+									}),
+									opt(prealloc, checkSize(int64(expectedSz))),
+
+									// optional: close and open file without extra Options
+									optReopenWith(reopen, Options{}),
+									opt(reopen && prealloc, checkSize(int64(expectedSz))),
+
+									// validate by allocating one more page
+									allocate(1, canAllocMore),
+
+									opt(prealloc, checkSize(int64(expectedSz))),
+								},
+							}
+						}
+						runScenarios(assert, scenarios)
+
+					})
+				}
+			})
+		}
+	})
+
+	assert.Run("shrink file", func(assert *assertions) {
+		const initPages = 100
+		const pageSize = 4096
+
+		initOpts := Options{
+			MaxSize:  pageSize * initPages,
+			PageSize: pageSize,
+		}
+
+		for _, reopen := range bools {
+			const numHeaderPages = 2
+			reopen := reopen
+
+			assert.Run(fmt.Sprintf("reopen:%v", reopen), func(assert *assertions) {
+				runScenarios(assert, map[string]scenario{
+					"fail with too small size": scenario{
+						opts: initOpts,
+						ops: []op{
+							closeFile,
+							func(f *testFile, _ *st) {
+								opts := Options{
+									MaxSize: pageSize * 4,
+									Flags:   FlagUpdMaxSize,
+								}
+								f.assert.Logf("open test file with invalid %#v", opts)
+
+								tmp, err := Open(f.path, os.ModePerm, opts)
+								if err == nil {
+									tmp.Close()
+									f.assert.Fail("expected resize to fail")
+								}
+							},
+						},
+					},
+
+					"empty file": scenario{
+						opts: initOpts,
+						ops: []op{
+							// resize file
+							closeFile,
+							openWith(Options{
+								MaxSize:  pageSize * initPages / 2,
+								Flags:    FlagUpdMaxSize,
+								Prealloc: true,
+							}),
+
+							// optional: close and open file without extra Options
+							optReopenWith(reopen, Options{}),
+
+							// try to allocate all available pages
+							allocate(initPages/2-numHeaderPages, true),
+
+							// check we can not allocate any new pages
+							allocate(1, false),
+						},
+					},
+
+					"pages already allocated": scenario{
+						opts: initOpts,
+						ops: []op{
+							// allocate enough pages, such that the page count exceeds the new maxSize upon resize
+							allocate(initPages/2-1, true),
+
+							// update max size
+							closeFile,
+							openWith(Options{
+								MaxSize: pageSize * initPages / 2,
+								Flags:   FlagUpdMaxSize,
+							}),
+
+							// optional: close and open file without extra Options
+							optReopenWith(reopen, Options{}),
+
+							// check allocation fails
+							allocate(1, false),
+						},
+					},
+
+					"bounding free data regions at end of file, including new size": scenario{
+						opts: Options{
+							MaxSize:      100 * pageSize,
+							PageSize:     pageSize,
+							InitMetaArea: 16,
+						},
+						ops: []op{
+							allocateAll,
+							releasePages(region{id: 40, count: 60}.PageIDs()),
+
+							// update max size
+							closeFile,
+							openWith(Options{
+								MaxSize: pageSize * 50,
+								Flags:   FlagUpdMaxSize,
+							}),
+
+							// optional: close and open file without extra Options
+							optReopenWith(reopen, Options{}),
+
+							// alocate free pages
+							allocate(10, true),
+
+							// check we can not allocate any new pages
+							allocate(1, false),
+						},
+					},
+
+					"bounding free data region at end of file, excluding new size": scenario{
+						opts: Options{
+							MaxSize:      100 * pageSize,
+							PageSize:     pageSize,
+							InitMetaArea: 16,
+						},
+						ops: []op{
+							allocateAll,
+							releasePages(region{id: 50, count: 50}.PageIDs()),
+
+							// update max size
+							closeFile,
+							openWith(Options{
+								MaxSize: pageSize * 50,
+								Flags:   FlagUpdMaxSize,
+							}),
+
+							// optional: close and open file without extra Options
+							optReopenWith(reopen, Options{}),
+
+							// check we can not allocate any new pages
+							allocate(1, false),
+						},
+					},
+
+					"bounding free data region at end of file, overflow": scenario{
+						opts: Options{
+							MaxSize:      100 * pageSize,
+							PageSize:     pageSize,
+							InitMetaArea: 16,
+						},
+						ops: []op{
+							allocateAll,
+							releasePages(region{id: 60, count: 40}.PageIDs()),
+
+							// update max size
+							closeFile,
+							openWith(Options{
+								MaxSize: pageSize * 50,
+								Flags:   FlagUpdMaxSize,
+							}),
+
+							// optional: close and open file without extra Options
+							optReopenWith(reopen, Options{}),
+
+							// check we can not allocate any new pages
+							allocate(1, false),
+
+							// free overflow pages
+							releasePages(region{id: 50, count: 10}.PageIDs()),
+
+							// check we still can not allocate any new pages
+							allocate(1, false),
+
+							// free some more space in the reduced data area
+							releasePages(region{id: 40, count: 10}.PageIDs()),
+
+							// check we can allocate freed pages, but no more:
+							allocate(10, true),
+							allocate(1, false),
+						},
+					},
+				})
+			})
+		}
+	})
+}
+
+func setupPath(assert *assertions, file string) (string, func()) {
+	return osfstest.SetupPath(assert, file)
+}
+
 func setupTestFile(assert *assertions, opts Options) (*testFile, func()) {
 	// if opts.MaxSize == 0 {
 	// 	opts.MaxSize = 10 * 1 << 20 // 10 MB
 	// }
 	if opts.PageSize == 0 {
 		opts.PageSize = 4096
+	}
+
+	if testing.Short() {
+		opts.Sync = SyncNone
 	}
 
 	ok := false
@@ -484,7 +983,11 @@ func (f *testFile) Close() {
 }
 
 func (f *testFile) Open() {
-	tmp, err := Open(f.path, os.ModePerm, f.opts)
+	f.OpenWith(f.opts)
+}
+
+func (f *testFile) OpenWith(opts Options) {
+	tmp, err := Open(f.path, os.ModePerm, opts)
 	f.assert.FatalOnError(err, "reopen failed")
 	f.File = tmp
 
@@ -528,11 +1031,14 @@ func (f *testFile) checkConsistency() bool {
 	ok = ok && f.assert.Equal(walMapping, f.wal.mapping, "wal mapping")
 	ok = ok && f.assert.Equal(walPages.Regions(), f.wal.metaPages, "wal meta pages")
 
-	// validate meta end markers state
 	maxSize := meta.maxSize.Get() / uint64(meta.pageSize.Get())
 	dataEnd := meta.dataEndMarker.Get()
 	metaEnd := meta.metaEndMarker.Get()
-	ok = ok && f.assert.True(maxSize == 0 || uint64(dataEnd) <= maxSize, "data end marker in bounds")
+
+	// validate meta end markers state
+	if !f.disableEndMarkerCheck {
+		ok = ok && f.assert.True(maxSize == 0 || uint64(dataEnd) <= maxSize, "data end marker in bounds")
+	}
 
 	// compare alloc markers and counters with allocator state
 	ok = ok && f.assert.Equal(dataEnd, f.allocator.data.endMarker, "data end marker mismatch")
@@ -558,12 +1064,46 @@ func (f *testFile) checkConsistency() bool {
 	return ok
 }
 
+func (f *testFile) BeginWith(opts TxOptions) *Tx {
+	tx, err := f.File.BeginWith(opts)
+	f.assert.FatalOnError(err)
+	return tx
+}
+
+func (f *testFile) Begin() *Tx {
+	tx, err := f.File.Begin()
+	f.assert.FatalOnError(err)
+	return tx
+}
+
+func (f *testFile) BeginReadonly() *Tx {
+	tx, err := f.File.BeginReadonly()
+	f.assert.FatalOnError(err)
+	return tx
+}
+
 func (f *testFile) withTx(write bool, fn func(tx *Tx)) {
 	tx := f.BeginWith(TxOptions{Readonly: !write})
 	defer func() {
 		f.assert.FatalOnError(tx.Close())
 	}()
 	fn(tx)
+}
+
+func (f *testFile) freePages(ids idList) {
+	f.withTx(true, func(tx *Tx) {
+		f.txFreePages(tx, ids)
+		f.assert.FatalOnError(tx.Commit())
+	})
+}
+
+func (f *testFile) txFreePages(tx *Tx, ids idList) {
+	for _, id := range ids {
+		page, err := tx.Page(id)
+		f.assert.FatalOnError(err)
+
+		page.Free()
+	}
 }
 
 func (f *testFile) append(contents []string) (ids idList) {

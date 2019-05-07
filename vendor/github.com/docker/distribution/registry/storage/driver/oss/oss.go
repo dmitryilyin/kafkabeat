@@ -13,6 +13,7 @@ package oss
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -22,13 +23,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/distribution/context"
-
-	"github.com/Sirupsen/logrus"
 	"github.com/denverdino/aliyungo/oss"
 	storagedriver "github.com/docker/distribution/registry/storage/driver"
 	"github.com/docker/distribution/registry/storage/driver/base"
 	"github.com/docker/distribution/registry/storage/driver/factory"
+	"github.com/sirupsen/logrus"
 )
 
 const driverName = "oss"
@@ -55,6 +54,7 @@ type DriverParameters struct {
 	ChunkSize       int64
 	RootDirectory   string
 	Endpoint        string
+	EncryptionKeyID string
 }
 
 func init() {
@@ -69,11 +69,12 @@ func (factory *ossDriverFactory) Create(parameters map[string]interface{}) (stor
 }
 
 type driver struct {
-	Client        *oss.Client
-	Bucket        *oss.Bucket
-	ChunkSize     int64
-	Encrypt       bool
-	RootDirectory string
+	Client          *oss.Client
+	Bucket          *oss.Bucket
+	ChunkSize       int64
+	Encrypt         bool
+	RootDirectory   string
+	EncryptionKeyID string
 }
 
 type baseEmbed struct {
@@ -133,6 +134,11 @@ func FromParameters(parameters map[string]interface{}) (*Driver, error) {
 		}
 	}
 
+	encryptionKeyID, ok := parameters["encryptionkeyid"]
+	if !ok {
+		encryptionKeyID = ""
+	}
+
 	secureBool := true
 	secure, ok := parameters["secure"]
 	if ok {
@@ -186,6 +192,7 @@ func FromParameters(parameters map[string]interface{}) (*Driver, error) {
 		Secure:          secureBool,
 		Internal:        internalBool,
 		Endpoint:        fmt.Sprint(endpoint),
+		EncryptionKeyID: fmt.Sprint(encryptionKeyID),
 	}
 
 	return New(params)
@@ -210,11 +217,12 @@ func New(params DriverParameters) (*Driver, error) {
 	// if you initiated a new OSS client while another one is running on the same bucket.
 
 	d := &driver{
-		Client:        client,
-		Bucket:        bucket,
-		ChunkSize:     params.ChunkSize,
-		Encrypt:       params.Encrypt,
-		RootDirectory: params.RootDirectory,
+		Client:          client,
+		Bucket:          bucket,
+		ChunkSize:       params.ChunkSize,
+		Encrypt:         params.Encrypt,
+		RootDirectory:   params.RootDirectory,
+		EncryptionKeyID: params.EncryptionKeyID,
 	}
 
 	return &Driver{
@@ -351,7 +359,8 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 		prefix = "/"
 	}
 
-	listResponse, err := d.Bucket.List(d.ossPath(path), "/", "", listMax)
+	ossPath := d.ossPath(path)
+	listResponse, err := d.Bucket.List(ossPath, "/", "", listMax)
 	if err != nil {
 		return nil, parseError(opath, err)
 	}
@@ -369,13 +378,18 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 		}
 
 		if listResponse.IsTruncated {
-			listResponse, err = d.Bucket.List(d.ossPath(path), "/", listResponse.NextMarker, listMax)
+			listResponse, err = d.Bucket.List(ossPath, "/", listResponse.NextMarker, listMax)
 			if err != nil {
 				return nil, err
 			}
 		} else {
 			break
 		}
+	}
+
+	// This is to cover for the cases when the first key equal to ossPath.
+	if len(files) > 0 && files[0] == strings.Replace(ossPath, d.ossPath(""), prefix, 1) {
+		files = files[1:]
 	}
 
 	if opath != "/" {
@@ -398,7 +412,7 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 	err := d.Bucket.CopyLargeFileInParallel(d.ossPath(sourcePath), d.ossPath(destPath),
 		d.getContentType(),
 		getPermissions(),
-		oss.Options{},
+		d.getOptions(),
 		maxConcurrency)
 	if err != nil {
 		logrus.Errorf("Failed for move from %s to %s: %v", d.ossPath(sourcePath), d.ossPath(destPath), err)
@@ -474,6 +488,12 @@ func (d *driver) URLFor(ctx context.Context, path string, options map[string]int
 	return signedURL, nil
 }
 
+// Walk traverses a filesystem defined within driver, starting
+// from the given path, calling f on each file
+func (d *driver) Walk(ctx context.Context, path string, f storagedriver.WalkFn) error {
+	return storagedriver.WalkFallback(ctx, d, path, f)
+}
+
 func (d *driver) ossPath(path string) string {
 	return strings.TrimLeft(strings.TrimRight(d.RootDirectory, "/")+path, "/")
 }
@@ -492,7 +512,17 @@ func hasCode(err error, code string) bool {
 }
 
 func (d *driver) getOptions() oss.Options {
-	return oss.Options{ServerSideEncryption: d.Encrypt}
+	return oss.Options{
+		ServerSideEncryption:      d.Encrypt,
+		ServerSideEncryptionKeyID: d.EncryptionKeyID,
+	}
+}
+
+func (d *driver) getCopyOptions() oss.CopyOptions {
+	return oss.CopyOptions{
+		ServerSideEncryption:      d.Encrypt,
+		ServerSideEncryptionKeyID: d.EncryptionKeyID,
+	}
 }
 
 func getPermissions() oss.ACL {
@@ -569,7 +599,7 @@ func (w *writer) Write(p []byte) (int, error) {
 			w.readyPart = contents
 		} else {
 			// Otherwise we can use the old file as the new first part
-			_, part, err := multi.PutPartCopy(1, oss.CopyOptions{}, w.driver.Bucket.Name+"/"+w.key)
+			_, part, err := multi.PutPartCopy(1, w.driver.getCopyOptions(), w.driver.Bucket.Name+"/"+w.key)
 			if err != nil {
 				return 0, err
 			}

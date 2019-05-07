@@ -35,6 +35,7 @@ func init() {
 }
 
 type fileOutput struct {
+	filePath string
 	beat     beat.Info
 	observer outputs.Observer
 	rotator  *file.Rotator
@@ -43,6 +44,7 @@ type fileOutput struct {
 
 // makeFileout instantiates a new file output instance.
 func makeFileout(
+	_ outputs.IndexManager,
 	beat beat.Info,
 	observer outputs.Observer,
 	cfg *common.Config,
@@ -73,6 +75,8 @@ func (out *fileOutput) init(beat beat.Info, c config) error {
 	} else {
 		path = filepath.Join(c.Path, out.beat.Beat)
 	}
+
+	out.filePath = path
 
 	var err error
 	out.rotator, err = file.NewFileRotator(
@@ -123,6 +127,7 @@ func (out *fileOutput) Publish(
 			} else {
 				logp.Warn("Failed to serialize the event: %v", err)
 			}
+			logp.Debug("file", "Failed event: %v", event)
 
 			dropped++
 			continue
@@ -148,4 +153,8 @@ func (out *fileOutput) Publish(
 	st.Acked(len(events) - dropped)
 
 	return nil
+}
+
+func (out *fileOutput) String() string {
+	return "file(" + out.filePath + ")"
 }

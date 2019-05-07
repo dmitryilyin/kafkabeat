@@ -1,7 +1,8 @@
-package client
+package client // import "github.com/docker/docker/client"
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
-	"golang.org/x/net/context"
+	"github.com/docker/docker/errdefs"
 )
 
 func TestImageImportError(t *testing.T) {
@@ -20,6 +21,9 @@ func TestImageImportError(t *testing.T) {
 	_, err := client.ImageImport(context.Background(), types.ImageImportSource{}, "image:tag", types.ImageImportOptions{})
 	if err == nil || err.Error() != "Error response from daemon: Server error" {
 		t.Fatalf("expected a Server error, got %v", err)
+	}
+	if !errdefs.IsSystem(err) {
+		t.Fatalf("expected a Server Error, got %T", err)
 	}
 }
 
@@ -37,7 +41,7 @@ func TestImageImport(t *testing.T) {
 			}
 			repo := query.Get("repo")
 			if repo != "repository_name:imported" {
-				return nil, fmt.Errorf("repo not set in URL query properly. Expected 'repository_name', got %s", repo)
+				return nil, fmt.Errorf("repo not set in URL query properly. Expected 'repository_name:imported', got %s", repo)
 			}
 			tag := query.Get("tag")
 			if tag != "imported" {

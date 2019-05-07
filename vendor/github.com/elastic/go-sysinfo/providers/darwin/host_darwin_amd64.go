@@ -49,15 +49,15 @@ func (h *host) Info() types.HostInfo {
 	return h.info
 }
 
-func (h *host) CPUTime() (*types.CPUTimes, error) {
+func (h *host) CPUTime() (types.CPUTimes, error) {
 	cpu, err := getHostCPULoadInfo()
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to get host CPU usage")
+		return types.CPUTimes{}, errors.Wrap(err, "failed to get host CPU usage")
 	}
 
 	ticksPerSecond := time.Duration(getClockTicks())
 
-	return &types.CPUTimes{
+	return types.CPUTimes{
 		User:   time.Duration(cpu.User) * time.Second / ticksPerSecond,
 		System: time.Duration(cpu.System) * time.Second / ticksPerSecond,
 		Idle:   time.Duration(cpu.Idle) * time.Second / ticksPerSecond,
@@ -218,5 +218,9 @@ func (r *reader) time(h *host) {
 }
 
 func (r *reader) uniqueID(h *host) {
-	// TODO: call gethostuuid(uuid [16]byte, timespec)
+	v, err := MachineID()
+	if r.addErr(err) {
+		return
+	}
+	h.info.UniqueID = v
 }

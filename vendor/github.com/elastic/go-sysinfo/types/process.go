@@ -20,7 +20,12 @@ package types
 import "time"
 
 type Process interface {
+	CPUTimer
 	Info() (ProcessInfo, error)
+	Memory() (MemoryInfo, error)
+	User() (UserInfo, error)
+	Parent() (Process, error)
+	PID() int
 }
 
 type ProcessInfo struct {
@@ -33,21 +38,60 @@ type ProcessInfo struct {
 	StartTime time.Time `json:"start_time"`
 }
 
+// UserInfo contains information about the UID and GID
+// values of a process.
+type UserInfo struct {
+	// UID is the user ID.
+	// On Linux and Darwin (macOS) this is the real user ID.
+	// On Windows, this is the security identifier (SID) of the
+	// user account of the process access token.
+	UID string `json:"uid"`
+
+	// On Linux and Darwin (macOS) this is the effective user ID.
+	// On Windows, this is empty.
+	EUID string `json:"euid"`
+
+	// On Linux and Darwin (macOS) this is the saved user ID.
+	// On Windows, this is empty.
+	SUID string `json:"suid"`
+
+	// GID is the primary group ID.
+	// On Linux and Darwin (macOS) this is the real group ID.
+	// On Windows, this is the security identifier (SID) of the
+	// primary group of the process access token.
+	GID string `json:"gid"`
+
+	// On Linux and Darwin (macOS) this is the effective group ID.
+	// On Windows, this is empty.
+	EGID string `json:"egid"`
+
+	// On Linux and Darwin (macOS) this is the saved group ID.
+	// On Windows, this is empty.
+	SGID string `json:"sgid"`
+}
+
 type Environment interface {
 	Environment() (map[string]string, error)
 }
 
-type FileDescriptor interface {
-	FileDescriptors() ([]string, error)
-	FileDescriptorCount() (int, error)
+// OpenHandleEnumerator lists the open file handles.
+type OpenHandleEnumerator interface {
+	OpenHandles() ([]string, error)
+}
+
+// OpenHandleCount returns the number the open file handles.
+type OpenHandleCounter interface {
+	OpenHandleCount() (int, error)
 }
 
 type CPUTimer interface {
-	CPUTime() CPUTimes
-}
-
-type Memory interface {
-	Memory() MemoryInfo
+	// CPUTime returns a CPUTimes structure for
+	// the host or some process.
+	//
+	// The User and System fields are guaranteed
+	// to be populated for all platforms, and
+	// for both hosts and processes.
+	CPUTime() (CPUTimes, error)
 }
 
 type CPUTimes struct {

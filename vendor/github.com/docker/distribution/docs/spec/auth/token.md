@@ -1,14 +1,14 @@
 ---
 title: "Token Authentication Specification"
 description: "Specifies the Docker Registry v2 authentication"
-keywords: ["registry, on-prem, images, tags, repository, distribution, Bearer authentication, advanced"]
+keywords: registry, on-prem, images, tags, repository, distribution, Bearer authentication, advanced
 ---
 
 # Docker Registry v2 authentication via central service
 
 This document outlines the v2 Docker registry authentication scheme:
 
-![v2 registry auth](../../images/v2-registry-auth.png)
+![v2 registry auth](../images/v2-registry-auth.png)
 
 1. Attempt to begin a push/pull operation with the registry.
 2. If the registry requires authorization it will return a `401 Unauthorized`
@@ -60,7 +60,7 @@ return this response:
 
 ```
 HTTP/1.1 401 Unauthorized
-Content-Type: application/json; charset=utf-8
+Content-Type: application/json
 Docker-Distribution-Api-Version: registry/2.0
 Www-Authenticate: Bearer realm="https://auth.docker.io/token",service="registry.docker.io",scope="repository:samalba/my-app:pull,push"
 Date: Thu, 10 Sep 2015 19:32:31 GMT

@@ -1,9 +1,28 @@
+// Licensed to Elasticsearch B.V. under one or more contributor
+// license agreements. See the NOTICE file distributed with
+// this work for additional information regarding copyright
+// ownership. Elasticsearch B.V. licenses this file to you under
+// the Apache License, Version 2.0 (the "License"); you may
+// not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package txfile
 
 import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/elastic/go-txfile/internal/vfs"
 )
 
 type (
@@ -39,6 +58,14 @@ const (
 func TestFileWriter(t *testing.T) {
 	assert := newAssertions(t)
 
+	checkCause := func(assert *assertions, expected, err error) {
+		if reason, ok := err.(reason); ok {
+			assert.Equal(expected, reason.Cause())
+		} else {
+			assert.Fail("expected failure reason")
+		}
+	}
+
 	assert.Run("start stop", func(assert *assertions) {
 		var ops testIOOperations
 		_, teardown := newTestWriter(recordWriteOps(&ops), 64)
@@ -57,7 +84,7 @@ func TestFileWriter(t *testing.T) {
 		var tmp [10]byte
 		sync := newTxWriteSync()
 		w.Schedule(sync, 0, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 
 		if !assert.NoError(waitFn(1*time.Second, sync.Wait)) {
 			assert.FailNow("invalid writer state")
@@ -84,13 +111,13 @@ func TestFileWriter(t *testing.T) {
 		sync := newTxWriteSync()
 		w.Schedule(sync, 0, tmp[:])
 		w.Schedule(sync, 1, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 		w.Schedule(sync, 2, tmp[:])
 		w.Schedule(sync, 3, tmp[:])
 		w.Schedule(sync, 4, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 		w.Schedule(sync, 5, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 
 		// unblock writer, so scheduled write commands will be executed
 		b.Unblock()
@@ -113,8 +140,11 @@ func TestFileWriter(t *testing.T) {
 			actual[i] = t
 			offsets[i] = off
 		}
-		assert.Equal(expectedOps, actual)
-		assert.Equal(expectedOffsets, offsets)
+
+		if assert.Equal(len(expectedOps), len(actual)) {
+			assert.Equal(expectedOps, actual)
+			assert.Equal(expectedOffsets, offsets)
+		}
 	})
 
 	assert.Run("ordered writes", func(assert *assertions) {
@@ -127,11 +157,11 @@ func TestFileWriter(t *testing.T) {
 
 		var tmp [10]byte
 		sync := newTxWriteSync()
-		w.Sync(sync) // start with sync, to guarantee writer is really blocked
+		w.Sync(sync, 0) // start with sync, to guarantee writer is really blocked
 		w.Schedule(sync, 3, tmp[:])
 		w.Schedule(sync, 2, tmp[:])
 		w.Schedule(sync, 1, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 
 		// unblock writer, so scheduled write commands will be executed
 		b.Unblock()
@@ -168,14 +198,12 @@ func TestFileWriter(t *testing.T) {
 		var tmp [10]byte
 		sync := newTxWriteSync()
 		w.Schedule(sync, 1, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 		w.Schedule(sync, 2, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 
 		err := waitFn(1*time.Second, sync.Wait)
-		if expectedErr != err {
-			assert.FailNow("unexpected error")
-		}
+		checkCause(assert, expectedErr, err)
 
 		// writer should stop on first error and ignore all following commands
 		expectedOps := []opType{opWriteAt, opSync}
@@ -204,14 +232,14 @@ func TestFileWriter(t *testing.T) {
 		sync := newTxWriteSync()
 		w.Schedule(sync, 1, tmp[:])
 		w.Schedule(sync, 2, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 		w.Schedule(sync, 3, tmp[:])
 		w.Schedule(sync, 4, tmp[:])
-		w.Sync(sync)
+		w.Sync(sync, 0)
 
 		err := waitFn(5*time.Second, sync.Wait)
 		assert.Error(err)
-		assert.Equal(expectedErr, err)
+		checkCause(assert, expectedErr, err)
 
 		// writer should stop on first error and ignore all following commands
 		expectedOps := []opType{opWriteAt}
@@ -225,7 +253,7 @@ func TestFileWriter(t *testing.T) {
 
 func newTestWriter(to writable, pagesize uint) (*writer, func() error) {
 	w := &writer{}
-	w.Init(to, pagesize)
+	w.Init(to, pagesize, SyncDefault)
 
 	cw := makeCloseWait(1 * time.Second)
 	cw.Add(1)
@@ -244,7 +272,7 @@ func newTestWriter(to writable, pagesize uint) (*writer, func() error) {
 	}
 }
 
-func (w *testWriterTarget) Sync() error { return w.sync() }
+func (w *testWriterTarget) Sync(_ vfs.SyncFlag) error { return w.sync() }
 func (w *testWriterTarget) WriteAt(p []byte, off int64) (n int, err error) {
 	return w.writeAt(p, off)
 }

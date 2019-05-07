@@ -53,7 +53,7 @@ func init() {
 	outputs.RegisterType("test", makeTestOutput)
 }
 
-func makeTestOutput(beat beat.Info, observer outputs.Observer, cfg *common.Config) (outputs.Group, error) {
+func makeTestOutput(_ outputs.IndexManager, beat beat.Info, observer outputs.Observer, cfg *common.Config) (outputs.Group, error) {
 	config := defaultTestOutputConfig
 	if err := cfg.Unpack(&config); err != nil {
 		return outputs.Fail(err)
@@ -105,4 +105,8 @@ func (t *testOutput) Publish(batch publisher.Batch) error {
 	t.observer.Acked(n)
 
 	return nil
+}
+
+func (t *testOutput) String() string {
+	return "test"
 }

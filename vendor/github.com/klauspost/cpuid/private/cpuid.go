@@ -20,6 +20,7 @@ const (
 	msvm // Microsoft Hyper-V or Windows Virtual PC
 	vmware
 	xenhvm
+	hygon
 )
 
 const (
@@ -70,6 +71,8 @@ const (
 	rdtscp                  // RDTSCP Instruction
 	cx16                    // CMPXCHG16B Instruction
 	sgx                     // Software Guard Extensions
+	ibpb                    // Indirect Branch Restricted Speculation (IBRS) and Indirect Branch Predictor Barrier (IBPB)
+	stibp                   // Single Thread Indirect Branch Predictors
 
 	// Performance indicators
 	sse2slow // SSE2 is supported, but usually not faster
@@ -125,6 +128,8 @@ var flagNames = map[flags]string{
 	rdtscp:      "RDTSCP",      // RDTSCP Instruction
 	cx16:        "CX16",        // CMPXCHG16B Instruction
 	sgx:         "SGX",         // Software Guard Extensions
+	ibpb:        "IBPB",        // Indirect Branch Restricted Speculation and Indirect Branch Predictor Barrier
+	stibp:       "STIBP",       // Single Thread Indirect Branch Predictors
 
 	// Performance indicators
 	sse2slow: "SSE2SLOW", // SSE2 supported, but usually not faster
@@ -462,6 +467,11 @@ func (c cpuInfo) amd() bool {
 	return c.vendorid == amd
 }
 
+// Hygon returns true if vendor is recognized as Hygon
+func (c cpuInfo) hygon() bool {
+	return c.vendorid == hygon
+}
+
 // Transmeta returns true if vendor is recognized as Transmeta
 func (c cpuInfo) transmeta() bool {
 	return c.vendorid == transmeta
@@ -615,7 +625,7 @@ func logicalCores() int {
 		}
 		_, b, _, _ := cpuidex(0xb, 1)
 		return int(b & 0xffff)
-	case amd:
+	case amd, hygon:
 		_, b, _, _ := cpuid(1)
 		return int((b >> 16) & 0xff)
 	default:
@@ -637,7 +647,7 @@ func physicalCores() int {
 	switch vendorID() {
 	case intel:
 		return logicalCores() / threadsPerCore()
-	case amd:
+	case amd, hygon:
 		if maxExtendedFunction() >= 0x80000008 {
 			_, _, c, _ := cpuid(0x80000008)
 			return int(c&0xff) + 1
@@ -660,6 +670,7 @@ var vendorMapping = map[string]vendor{
 	"Microsoft Hv": msvm,
 	"VMwareVMware": vmware,
 	"XenVMMXenVMM": xenhvm,
+	"HygonGenuine": hygon,
 }
 
 func vendorID() vendor {
@@ -732,7 +743,7 @@ func (c *cpuInfo) cacheSize() {
 				c.cache.l3 = size
 			}
 		}
-	case amd:
+	case amd, hygon:
 		// Untested.
 		if maxExtendedFunction() < 0x80000005 {
 			return
@@ -848,7 +859,7 @@ func support() flags {
 
 	// Check AVX2, AVX2 requires OS support, but BMI1/2 don't.
 	if mfi >= 7 {
-		_, ebx, ecx, _ := cpuidex(7, 0)
+		_, ebx, ecx, edx := cpuidex(7, 0)
 		if (rval&avx) != 0 && (ebx&0x00000020) != 0 {
 			rval |= avx2
 		}
@@ -881,6 +892,12 @@ func support() flags {
 		}
 		if ebx&(1<<29) != 0 {
 			rval |= sha
+		}
+		if edx&(1<<26) != 0 {
+			rval |= ibpb
+		}
+		if edx&(1<<27) != 0 {
+			rval |= stibp
 		}
 
 		// Only detect AVX-512 features if XGETBV is supported

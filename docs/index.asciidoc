@@ -1,5 +1,0 @@
-= Kafkabeat Docs
-
-Welcome to the Kafkabeat documentation.
-
-

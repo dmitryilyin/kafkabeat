@@ -20,6 +20,7 @@ package kafka
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -141,6 +142,10 @@ func (c *client) Publish(batch publisher.Batch) error {
 	return nil
 }
 
+func (c *client) String() string {
+	return "kafka(" + strings.Join(c.hosts, ",") + ")"
+}
+
 func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 	event := &data.Content
 	msg := &message{partition: -1, data: *data}
@@ -174,6 +179,7 @@ func (c *client) getEventMessage(data *publisher.Event) (*message, error) {
 
 	serializedEvent, err := c.codec.Encode(c.index, event)
 	if err != nil {
+		logp.Debug("kafka", "Failed event: %v", event)
 		return nil, err
 	}
 

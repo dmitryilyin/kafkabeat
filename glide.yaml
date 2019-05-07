@@ -1,0 +1,16 @@
+package: github.com/dmitryilyin/kafkabeat
+import:
+
+- package: github.com/Shopify/sarama
+  version: 1.18.0
+
+- package: github.com/bsm/sarama-cluster
+  version: 2.1.15
+
+- package: github.com/elastic/beats
+  version: 7.0.1
+  subpackages:
+  - libbeat/beat
+  - libbeat/cmd
+  - libbeat/common
+  - libbeat/logp

@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,8 +63,8 @@ func TestIndex(t *testing.T) {
 	if err != nil {
 		t.Errorf("SearchUriWithBody() returns an error: %s", err)
 	}
-	if result.Hits.Total != 1 {
-		t.Errorf("Wrong number of search results: %d", result.Hits.Total)
+	if result.Hits.Total.Value != 1 {
+		t.Errorf("Wrong number of search results: %d", result.Hits.Total.Value)
 	}
 
 	params = map[string]string{
@@ -75,8 +74,8 @@ func TestIndex(t *testing.T) {
 	if err != nil {
 		t.Errorf("SearchUri() returns an error: %s", err)
 	}
-	if result.Hits.Total != 1 {
-		t.Errorf("Wrong number of search results: %d", result.Hits.Total)
+	if result.Hits.Total.Value != 1 {
+		t.Errorf("Wrong number of search results: %d", result.Hits.Total.Value)
 	}
 
 	_, resp, err = client.Delete(index, "test", "1", nil)
@@ -105,13 +104,21 @@ func TestIngest(t *testing.T) {
 	}
 
 	client := getTestingElasticsearch(t)
-	if strings.HasPrefix(client.Connection.version, "2.") {
-		t.Skip("Skipping tests as pipeline not available in 2.x releases")
+	if client.Connection.version.Major < 5 {
+		t.Skip("Skipping tests as pipeline not available in <5.x releases")
 	}
 
 	status, _, err := client.DeletePipeline(pipeline, nil)
 	if err != nil && status != http.StatusNotFound {
 		t.Fatal(err)
+	}
+
+	exists, err := client.PipelineExists(pipeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists == true {
+		t.Fatalf("Test expected PipelineExists to return false for %v", pipeline)
 	}
 
 	_, resp, err := client.CreatePipeline(pipeline, nil, pipelineBody)
@@ -120,6 +127,14 @@ func TestIngest(t *testing.T) {
 	}
 	if !resp.Acknowledged {
 		t.Fatalf("Test pipeline %v not created", pipeline)
+	}
+
+	exists, err = client.PipelineExists(pipeline)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if exists == false {
+		t.Fatalf("Test expected PipelineExists to return true for %v", pipeline)
 	}
 
 	params := map[string]string{"refresh": "true"}

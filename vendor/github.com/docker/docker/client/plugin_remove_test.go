@@ -1,7 +1,8 @@
-package client
+package client // import "github.com/docker/docker/client"
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -9,8 +10,7 @@ import (
 	"testing"
 
 	"github.com/docker/docker/api/types"
-
-	"golang.org/x/net/context"
+	"github.com/docker/docker/errdefs"
 )
 
 func TestPluginRemoveError(t *testing.T) {
@@ -21,6 +21,9 @@ func TestPluginRemoveError(t *testing.T) {
 	err := client.PluginRemove(context.Background(), "plugin_name", types.PluginRemoveOptions{})
 	if err == nil || err.Error() != "Error response from daemon: Server error" {
 		t.Fatalf("expected a Server Error, got %v", err)
+	}
+	if !errdefs.IsSystem(err) {
+		t.Fatalf("expected a Server Error, got %T", err)
 	}
 }
 
@@ -33,7 +36,7 @@ func TestPluginRemove(t *testing.T) {
 				return nil, fmt.Errorf("Expected URL '%s', got '%s'", expectedURL, req.URL)
 			}
 			if req.Method != "DELETE" {
-				return nil, fmt.Errorf("expected POST method, got %s", req.Method)
+				return nil, fmt.Errorf("expected DELETE method, got %s", req.Method)
 			}
 			return &http.Response{
 				StatusCode: http.StatusOK,

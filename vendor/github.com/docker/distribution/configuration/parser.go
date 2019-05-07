@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v2"
 )
 
@@ -122,7 +122,7 @@ func (p *Parser) Parse(in []byte, v interface{}) error {
 
 	parseInfo, ok := p.mapping[versionedStruct.Version]
 	if !ok {
-		return fmt.Errorf("Unsupported version: %q", versionedStruct.Version)
+		return fmt.Errorf("unsupported version: %q", versionedStruct.Version)
 	}
 
 	parseAs := reflect.New(parseInfo.ParseAs)

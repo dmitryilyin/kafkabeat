@@ -20,6 +20,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"time"
@@ -69,11 +70,12 @@ func Clean() error {
 // Package packages the Beat for distribution.
 // Use SNAPSHOT=true to build snapshots.
 // Use PLATFORMS to control the target platforms.
+// Use VERSION_QUALIFIER to control the version qualifier.
 func Package() {
 	start := time.Now()
 	defer func() { fmt.Println("package ran for", time.Since(start)) }()
 
-	mage.UseElasticBeatPackaging()
+	mage.UseElasticBeatOSSPackaging()
 	customizePackaging()
 
 	mg.Deps(Update)
@@ -83,7 +85,7 @@ func Package() {
 
 // TestPackages tests the generated packages (i.e. file modes, owners, groups).
 func TestPackages() error {
-	return mage.TestPackages()
+	return mage.TestPackages(mage.WithModulesD())
 }
 
 // Update updates the generated files (aka make update).
@@ -96,6 +98,43 @@ func Fields() error {
 	return mage.GenerateFieldsYAML("module")
 }
 
+// GoTestUnit executes the Go unit tests.
+// Use TEST_COVERAGE=true to enable code coverage profiling.
+// Use RACE_DETECTOR=true to enable the race detector.
+func GoTestUnit(ctx context.Context) error {
+	return mage.GoTest(ctx, mage.DefaultGoTestUnitArgs())
+}
+
+// GoTestIntegration executes the Go integration tests.
+// Use TEST_COVERAGE=true to enable code coverage profiling.
+// Use RACE_DETECTOR=true to enable the race detector.
+func GoTestIntegration(ctx context.Context) error {
+	return mage.GoTest(ctx, mage.DefaultGoTestIntegrationArgs())
+}
+
+// ExportDashboard exports a dashboard and writes it into the correct directory
+//
+// Required ENV variables:
+// * MODULE: Name of the module
+// * ID: Dashboard id
+func ExportDashboard() error {
+	return mage.ExportDashboard()
+}
+
+// FieldsDocs generates docs/fields.asciidoc containing all fields
+// (including x-pack).
+func FieldsDocs() error {
+	inputs := []string{
+		mage.OSSBeatDir("module"),
+		mage.XPackBeatDir("module"),
+	}
+	output := mage.CreateDir("build/fields/fields.all.yml")
+	if err := mage.GenerateFieldsYAMLTo(output, inputs...); err != nil {
+		return err
+	}
+	return mage.Docs.FieldDocs(output)
+}
+
 // -----------------------------------------------------------------------------
 // Customizations specific to Metricbeat.
 // - Include modules.d directory in packages.
@@ -106,17 +145,20 @@ func Fields() error {
 // not supported.
 func customizePackaging() {
 	var (
-		archiveModulesDir   = "modules.d"
-		linuxPkgModulesDir  = "/usr/share/{{.BeatName}}/modules.d"
-		darwinDMGModulesDir = "/Library/Application Support/{{.BeatVendor}}/{{.BeatName}}/modules.d"
+		archiveModulesDir = "modules.d"
+		unixModulesDir    = "/etc/{{.BeatName}}/modules.d"
 
 		modulesDir = mage.PackageFile{
-			Mode:   0644,
-			Source: "modules.d",
+			Mode:    0644,
+			Source:  "modules.d",
+			Config:  true,
+			Modules: true,
 		}
 		windowsModulesDir = mage.PackageFile{
-			Mode:   0644,
-			Source: "{{.PackageDir}}/modules.d",
+			Mode:    0644,
+			Source:  "{{.PackageDir}}/modules.d",
+			Config:  true,
+			Modules: true,
 			Dep: func(spec mage.PackageSpec) error {
 				if err := mage.Copy("modules.d", spec.MustExpand("{{.PackageDir}}/modules.d")); err != nil {
 					return errors.Wrap(err, "failed to copy modules.d dir")
@@ -152,12 +194,10 @@ func customizePackaging() {
 		default:
 			pkgType := args.Types[0]
 			switch pkgType {
-			case mage.TarGz, mage.Zip:
+			case mage.TarGz, mage.Zip, mage.Docker:
 				args.Spec.Files[archiveModulesDir] = modulesDir
-			case mage.Deb, mage.RPM:
-				args.Spec.Files[linuxPkgModulesDir] = modulesDir
-			case mage.DMG:
-				args.Spec.Files[darwinDMGModulesDir] = modulesDir
+			case mage.Deb, mage.RPM, mage.DMG:
+				args.Spec.Files[unixModulesDir] = modulesDir
 			default:
 				panic(errors.Errorf("unhandled package type: %v", pkgType))
 			}

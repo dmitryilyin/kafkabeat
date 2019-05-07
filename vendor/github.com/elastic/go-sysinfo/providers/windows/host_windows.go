@@ -21,7 +21,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/elastic/go-windows"
+	windows "github.com/elastic/go-windows"
 	"github.com/joeshaw/multierror"
 	"github.com/pkg/errors"
 
@@ -48,13 +48,13 @@ func (h *host) Info() types.HostInfo {
 	return h.info
 }
 
-func (h *host) CPUTime() (*types.CPUTimes, error) {
+func (h *host) CPUTime() (types.CPUTimes, error) {
 	idle, kernel, user, err := windows.GetSystemTimes()
 	if err != nil {
-		return nil, err
+		return types.CPUTimes{}, err
 	}
 
-	return &types.CPUTimes{
+	return types.CPUTimes{
 		System: kernel,
 		User:   user,
 		Idle:   idle,

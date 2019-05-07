@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"reflect"
@@ -8,15 +9,13 @@ import (
 	"testing"
 
 	"github.com/docker/distribution"
-	"github.com/docker/distribution/context"
-	"github.com/docker/distribution/digest"
-
 	"github.com/docker/distribution/reference"
 	"github.com/docker/distribution/testutil"
+	"github.com/opencontainers/go-digest"
 )
 
 func TestLinkedBlobStoreCreateWithMountFrom(t *testing.T) {
-	fooRepoName, _ := reference.ParseNamed("nm/foo")
+	fooRepoName, _ := reference.WithName("nm/foo")
 	fooEnv := newManifestStoreTestEnv(t, fooRepoName, "thetag")
 	ctx := context.Background()
 	stats, err := mockRegistry(t, fooEnv.registry)
@@ -28,13 +27,12 @@ func TestLinkedBlobStoreCreateWithMountFrom(t *testing.T) {
 	// readseekers for upload later.
 	testLayers := map[digest.Digest]io.ReadSeeker{}
 	for i := 0; i < 2; i++ {
-		rs, ds, err := testutil.CreateRandomTarFile()
+		rs, dgst, err := testutil.CreateRandomTarFile()
 		if err != nil {
 			t.Fatalf("unexpected error generating test layer file")
 		}
-		dgst := digest.Digest(ds)
 
-		testLayers[digest.Digest(dgst)] = rs
+		testLayers[dgst] = rs
 	}
 
 	// upload the layers to foo/bar
@@ -54,7 +52,7 @@ func TestLinkedBlobStoreCreateWithMountFrom(t *testing.T) {
 	}
 
 	// create another repository nm/bar
-	barRepoName, _ := reference.ParseNamed("nm/bar")
+	barRepoName, _ := reference.WithName("nm/bar")
 	barRepo, err := fooEnv.registry.Repository(ctx, barRepoName)
 	if err != nil {
 		t.Fatalf("unexpected error getting repo: %v", err)
@@ -94,7 +92,7 @@ func TestLinkedBlobStoreCreateWithMountFrom(t *testing.T) {
 	clearStats(stats)
 
 	// create yet another repository nm/baz
-	bazRepoName, _ := reference.ParseNamed("nm/baz")
+	bazRepoName, _ := reference.WithName("nm/baz")
 	bazRepo, err := fooEnv.registry.Repository(ctx, bazRepoName)
 	if err != nil {
 		t.Fatalf("unexpected error getting repo: %v", err)
@@ -163,8 +161,8 @@ type mockBlobDescriptorServiceFactory struct {
 func (f *mockBlobDescriptorServiceFactory) BlobAccessController(svc distribution.BlobDescriptorService) distribution.BlobDescriptorService {
 	return &mockBlobDescriptorService{
 		BlobDescriptorService: svc,
-		t:     f.t,
-		stats: f.stats,
+		t:                     f.t,
+		stats:                 f.stats,
 	}
 }
 

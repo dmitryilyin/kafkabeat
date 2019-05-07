@@ -20,6 +20,8 @@
 package elasticsearch_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -29,11 +31,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/elastic/beats/libbeat/common"
 	"github.com/elastic/beats/libbeat/tests/compose"
+	"github.com/elastic/beats/metricbeat/helper/elastic"
 	mbtest "github.com/elastic/beats/metricbeat/mb/testing"
-
-	"bytes"
-
+	"github.com/elastic/beats/metricbeat/module/elasticsearch"
+	_ "github.com/elastic/beats/metricbeat/module/elasticsearch/ccr"
 	_ "github.com/elastic/beats/metricbeat/module/elasticsearch/cluster_stats"
 	_ "github.com/elastic/beats/metricbeat/module/elasticsearch/index"
 	_ "github.com/elastic/beats/metricbeat/module/elasticsearch/index_recovery"
@@ -45,6 +48,7 @@ import (
 )
 
 var metricSets = []string{
+	"ccr",
 	"cluster_stats",
 	"index",
 	"index_recovery",
@@ -56,34 +60,56 @@ var metricSets = []string{
 }
 
 func TestFetch(t *testing.T) {
+	t.Skip("flaky")
 	compose.EnsureUp(t, "elasticsearch")
 
 	host := net.JoinHostPort(getEnvHost(), getEnvPort())
 	err := createIndex(host)
 	assert.NoError(t, err)
 
-	err = enableTrialLicense(host)
+	version, err := getElasticsearchVersion(host)
+	if err != nil {
+		t.Fatal("getting elasticsearch version", err)
+	}
+
+	err = enableTrialLicense(host, version)
 	assert.NoError(t, err)
 
-	err = createMLJob(host)
+	err = createMLJob(host, version)
+	assert.NoError(t, err)
+
+	err = createCCRStats(host)
 	assert.NoError(t, err)
 
 	for _, metricSet := range metricSets {
+		checkSkip(t, metricSet, version)
 		t.Run(metricSet, func(t *testing.T) {
 			f := mbtest.NewReportingMetricSetV2(t, getConfig(metricSet))
 			events, errs := mbtest.ReportingFetchV2(f)
 
-			assert.NotNil(t, events)
-			assert.Nil(t, errs)
-			t.Logf("%s/%s event: %+v", f.Module().Name(), f.Name(), events[0].BeatEvent("elasticsearch", metricSet).Fields.StringToPrint())
+			assert.Empty(t, errs)
+			if !assert.NotEmpty(t, events) {
+				t.FailNow()
+			}
+			t.Logf("%s/%s event: %+v", f.Module().Name(), f.Name(),
+				events[0].BeatEvent("elasticsearch", metricSet).Fields.StringToPrint())
 		})
 	}
 }
 
 func TestData(t *testing.T) {
+	t.Skip("flaky")
 	compose.EnsureUp(t, "elasticsearch")
 
+	host := net.JoinHostPort(getEnvHost(), getEnvPort())
+
+	version, err := getElasticsearchVersion(host)
+	if err != nil {
+		t.Fatal("getting elasticsearch version", err)
+	}
+
 	for _, metricSet := range metricSets {
+		checkSkip(t, metricSet, version)
 		t.Run(metricSet, func(t *testing.T) {
 			f := mbtest.NewReportingMetricSetV2(t, getConfig(metricSet))
 			err := mbtest.WriteEventsReporterV2(f, t, metricSet)
@@ -117,9 +143,9 @@ func getEnvPort() string {
 // GetConfig returns config for elasticsearch module
 func getConfig(metricset string) map[string]interface{} {
 	return map[string]interface{}{
-		"module":     "elasticsearch",
-		"metricsets": []string{metricset},
-		"hosts":      []string{getEnvHost() + ":" + getEnvPort()},
+		"module":                     elasticsearch.ModuleName,
+		"metricsets":                 []string{metricset},
+		"hosts":                      []string{getEnvHost() + ":" + getEnvPort()},
 		"index_recovery.active_only": false,
 	}
 }
@@ -151,10 +177,15 @@ func createIndex(host string) error {
 }
 
 // createIndex creates and elasticsearch index in case it does not exit yet
-func enableTrialLicense(host string) error {
+func enableTrialLicense(host string, version *common.Version) error {
 	client := &http.Client{}
 
-	enableXPackURL := "/_xpack/license/start_trial?acknowledge=true"
+	var enableXPackURL string
+	if version.Major < 7 {
+		enableXPackURL = "/_xpack/license/start_trial?acknowledge=true"
+	} else {
+		enableXPackURL = "/_license/start_trial?acknowledge=true"
+	}
 
 	req, err := http.NewRequest("POST", "http://"+host+enableXPackURL, nil)
 	if err != nil {
@@ -167,46 +198,94 @@ func enableTrialLicense(host string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode != 200 {
+		body, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("could not enable trial license, response = %v", string(body))
+	}
+
 	return nil
 }
 
-func createMLJob(host string) error {
+func createMLJob(host string, version *common.Version) error {
 
 	mlJob, err := ioutil.ReadFile("ml_job/_meta/test/test_job.json")
 	if err != nil {
 		return err
 	}
 
-	client := &http.Client{}
-
-	jobURL := "/_xpack/ml/anomaly_detectors/total-requests"
+	var jobURL string
+	if version.Major < 7 {
+		jobURL = "/_xpack/ml/anomaly_detectors/total-requests"
+	} else {
+		jobURL = "/_ml/anomaly_detectors/total-requests"
+	}
 
 	if checkExists("http://" + host + jobURL) {
 		return nil
 	}
 
-	req, err := http.NewRequest("PUT", "http://"+host+jobURL, bytes.NewReader(mlJob))
-	if err != nil {
-		return err
-	}
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
+	body, resp, err := httpPutJSON(host, jobURL, mlJob)
 
 	if resp.StatusCode != 200 {
-		return fmt.Errorf("HTTP error loading ml job %d: %s, %s", resp.StatusCode, resp.Status, body)
+		return fmt.Errorf("HTTP error loading ml job %d: %s, %s", resp.StatusCode, resp.Status, string(body))
 	}
 
 	return nil
+}
+
+func createCCRStats(host string) error {
+	err := setupCCRRemote(host)
+	if err != nil {
+		return err
+	}
+
+	err = createCCRLeaderIndex(host)
+	if err != nil {
+		return err
+	}
+
+	err = createCCRFollowerIndex(host)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func setupCCRRemote(host string) error {
+	remoteSettings, err := ioutil.ReadFile("ccr/_meta/test/test_remote_settings.json")
+	if err != nil {
+		return err
+	}
+
+	settingsURL := "/_cluster/settings"
+	_, _, err = httpPutJSON(host, settingsURL, remoteSettings)
+	return err
+}
+
+func createCCRLeaderIndex(host string) error {
+	leaderIndex, err := ioutil.ReadFile("ccr/_meta/test/test_leader_index.json")
+	if err != nil {
+		return err
+	}
+
+	indexURL := "/pied_piper"
+	_, _, err = httpPutJSON(host, indexURL, leaderIndex)
+	return err
+}
+
+func createCCRFollowerIndex(host string) error {
+	followerIndex, err := ioutil.ReadFile("ccr/_meta/test/test_follower_index.json")
+	if err != nil {
+		return err
+	}
+
+	followURL := "/rats/_ccr/follow"
+	_, _, err = httpPutJSON(host, followURL, followerIndex)
+	return err
 }
 
 func checkExists(url string) bool {
@@ -221,4 +300,64 @@ func checkExists(url string) bool {
 		return true
 	}
 	return false
+}
+
+func checkSkip(t *testing.T, metricset string, version *common.Version) {
+	if metricset != "ccr" {
+		return
+	}
+
+	isCCRStatsAPIAvailable := elastic.IsFeatureAvailable(version, elasticsearch.CCRStatsAPIAvailableVersion)
+
+	if !isCCRStatsAPIAvailable {
+		t.Skip("elasticsearch CCR stats API is not available until " + elasticsearch.CCRStatsAPIAvailableVersion.String())
+	}
+}
+
+func getElasticsearchVersion(elasticsearchHostPort string) (*common.Version, error) {
+	resp, err := http.Get("http://" + elasticsearchHostPort + "/")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var data common.MapStr
+	err = json.Unmarshal(body, &data)
+	if err != nil {
+		return nil, err
+	}
+
+	version, err := data.GetValue("version.number")
+	if err != nil {
+		return nil, err
+	}
+
+	return common.NewVersion(version.(string))
+}
+
+func httpPutJSON(host, path string, body []byte) ([]byte, *http.Response, error) {
+	req, err := http.NewRequest("PUT", "http://"+host+path, bytes.NewReader(body))
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Header.Add("Content-Type", "application/json")
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return body, resp, nil
 }

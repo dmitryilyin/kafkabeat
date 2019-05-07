@@ -32,17 +32,11 @@ import (
 	"strings"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/aws/aws-sdk-go/aws/corehandlers"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/service/s3"
-)
-
-const (
-	signatureVersion = "2"
-	signatureMethod  = "HmacSHA1"
-	timeFormat       = "2006-01-02T15:04:05Z"
+	log "github.com/sirupsen/logrus"
 )
 
 type signer struct {
@@ -137,6 +131,9 @@ func (v2 *signer) Sign() error {
 	host, canonicalPath := parsedURL.Host, parsedURL.Path
 	v2.Request.Header["Host"] = []string{host}
 	v2.Request.Header["date"] = []string{v2.Time.In(time.UTC).Format(time.RFC1123)}
+	if credValue.SessionToken != "" {
+		v2.Request.Header["x-amz-security-token"] = []string{credValue.SessionToken}
+	}
 
 	smap = make(map[string]string)
 	for k, v := range headers {
@@ -206,9 +203,9 @@ func (v2 *signer) Sign() error {
 	v2.signature = base64.StdEncoding.EncodeToString(hash.Sum(nil))
 
 	if expires {
-		params["Signature"] = []string{string(v2.signature)}
+		params["Signature"] = []string{v2.signature}
 	} else {
-		headers["Authorization"] = []string{"AWS " + accessKey + ":" + string(v2.signature)}
+		headers["Authorization"] = []string{"AWS " + accessKey + ":" + v2.signature}
 	}
 
 	log.WithFields(log.Fields{

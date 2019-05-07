@@ -1,4 +1,5 @@
 // Copyright 2015 Tim Heckman. All rights reserved.
+// Copyright 2018 The Gofrs. All rights reserved.
 // Use of this source code is governed by the BSD 3-Clause
 // license that can be found in the LICENSE file.
 
@@ -11,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/theckman/go-flock"
+	"github.com/gofrs/flock"
 
 	. "gopkg.in/check.v1"
 )
@@ -35,7 +36,7 @@ func (t *TestSuite) SetUpTest(c *C) {
 	defer os.Remove(t.path)
 	tmpFile.Close()
 
-	t.flock = flock.NewFlock(t.path)
+	t.flock = flock.New(t.path)
 }
 
 func (t *TestSuite) TearDownTest(c *C) {
@@ -43,10 +44,10 @@ func (t *TestSuite) TearDownTest(c *C) {
 	os.Remove(t.path)
 }
 
-func (t *TestSuite) TestNewFlock(c *C) {
+func (t *TestSuite) TestNew(c *C) {
 	var f *flock.Flock
 
-	f = flock.NewFlock(t.path)
+	f = flock.New(t.path)
 	c.Assert(f, Not(IsNil))
 	c.Check(f.Path(), Equals, t.path)
 	c.Check(f.Locked(), Equals, false)
@@ -96,7 +97,7 @@ func (t *TestSuite) TestFlock_TryLock(c *C) {
 
 	// make sure we just return false with no error in cases
 	// where we would have been blocked
-	locked, err = flock.NewFlock(t.path).TryLock()
+	locked, err = flock.New(t.path).TryLock()
 	c.Assert(err, IsNil)
 	c.Check(locked, Equals, false)
 }
@@ -119,7 +120,7 @@ func (t *TestSuite) TestFlock_TryRLock(c *C) {
 	c.Check(locked, Equals, true)
 
 	// shared lock should not block.
-	flock2 := flock.NewFlock(t.path)
+	flock2 := flock.New(t.path)
 	locked, err = flock2.TryRLock()
 	c.Assert(err, IsNil)
 	c.Check(locked, Equals, true)
@@ -129,7 +130,7 @@ func (t *TestSuite) TestFlock_TryRLock(c *C) {
 	t.flock.Unlock()
 	flock2.Unlock()
 	t.flock.Lock()
-	locked, err = flock.NewFlock(t.path).TryRLock()
+	locked, err = flock.New(t.path).TryRLock()
 	c.Assert(err, IsNil)
 	c.Check(locked, Equals, false)
 }
@@ -143,14 +144,14 @@ func (t *TestSuite) TestFlock_TryLockContext(c *C) {
 
 	// context already canceled
 	cancel()
-	locked, err = flock.NewFlock(t.path).TryLockContext(ctx, time.Second)
+	locked, err = flock.New(t.path).TryLockContext(ctx, time.Second)
 	c.Assert(err, Equals, context.Canceled)
 	c.Check(locked, Equals, false)
 
 	// timeout
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	locked, err = flock.NewFlock(t.path).TryLockContext(ctx, time.Second)
+	locked, err = flock.New(t.path).TryLockContext(ctx, time.Second)
 	c.Assert(err, Equals, context.DeadlineExceeded)
 	c.Check(locked, Equals, false)
 }
@@ -164,7 +165,7 @@ func (t *TestSuite) TestFlock_TryRLockContext(c *C) {
 
 	// context already canceled
 	cancel()
-	locked, err = flock.NewFlock(t.path).TryRLockContext(ctx, time.Second)
+	locked, err = flock.New(t.path).TryRLockContext(ctx, time.Second)
 	c.Assert(err, Equals, context.Canceled)
 	c.Check(locked, Equals, false)
 
@@ -173,7 +174,7 @@ func (t *TestSuite) TestFlock_TryRLockContext(c *C) {
 	t.flock.Lock()
 	ctx, cancel = context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	locked, err = flock.NewFlock(t.path).TryRLockContext(ctx, time.Second)
+	locked, err = flock.New(t.path).TryRLockContext(ctx, time.Second)
 	c.Assert(err, Equals, context.DeadlineExceeded)
 	c.Check(locked, Equals, false)
 }
@@ -219,7 +220,7 @@ func (t *TestSuite) TestFlock_Lock(c *C) {
 	// Test that Lock() is a blocking call
 	//
 	ch := make(chan error, 2)
-	gf := flock.NewFlock(t.path)
+	gf := flock.New(t.path)
 	defer gf.Unlock()
 
 	go func(ch chan<- error) {
@@ -263,7 +264,7 @@ func (t *TestSuite) TestFlock_RLock(c *C) {
 	// Test that RLock() is a blocking call
 	//
 	ch := make(chan error, 2)
-	gf := flock.NewFlock(t.path)
+	gf := flock.New(t.path)
 	defer gf.Unlock()
 
 	go func(ch chan<- error) {

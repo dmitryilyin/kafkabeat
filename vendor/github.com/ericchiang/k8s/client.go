@@ -36,6 +36,7 @@ import (
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"time"
 
@@ -80,8 +81,27 @@ type Client struct {
 	// The URL of the API server.
 	Endpoint string
 
-	// Default namespaces for objects that don't supply a namespace in
-	// their object metadata.
+	// Namespace is the name fo the default reconciled from the client's config.
+	// It is set when constructing a client using NewClient(), and defaults to
+	// the value "default".
+	//
+	// This value should be used to access the client's default namespace. For
+	// example, to create a configmap in the default namespace, use client.Namespace
+	// when to fill the ObjectMeta:
+	//
+	//		client, err := k8s.NewClient(config)
+	//		if err != nil {
+	//			// handle error
+	//		}
+	//		cm := v1.ConfigMap{
+	//			Metadata: &metav1.ObjectMeta{
+	//				Name:      &k8s.String("my-configmap"),
+	//				Namespace: &client.Namespace,
+	//			},
+	//			Data: map[string]string{"foo": "bar", "spam": "eggs"},
+	//		}
+	//		err := client.Create(ctx, cm)
+	//
 	Namespace string
 
 	// SetHeaders provides a hook for modifying the HTTP headers of all requests.
@@ -202,8 +222,12 @@ func NewInClusterClient() (*Client, error) {
 		return nil, err
 	}
 
+	server := url.URL{
+		Scheme: "https",
+		Host:   net.JoinHostPort(host, port),
+	}
 	cluster := Cluster{
-		Server:               "https://" + host + ":" + port,
+		Server:               server.String(),
 		CertificateAuthority: "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
 	}
 	user := AuthInfo{TokenFile: "/var/run/secrets/kubernetes.io/serviceaccount/token"}
@@ -383,7 +407,16 @@ func (c *Client) Delete(ctx context.Context, req Resource, options ...Option) er
 	if err != nil {
 		return err
 	}
-	return c.do(ctx, "DELETE", url, nil, nil)
+	o := &deleteOptions{
+		Kind:              "DeleteOptions",
+		APIVersion:        "v1",
+		PropagationPolicy: "Background",
+	}
+	for _, option := range options {
+		option.updateDelete(req, o)
+	}
+
+	return c.do(ctx, "DELETE", url, o, nil)
 }
 
 func (c *Client) Update(ctx context.Context, req Resource, options ...Option) error {

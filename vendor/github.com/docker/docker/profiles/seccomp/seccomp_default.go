@@ -1,11 +1,10 @@
 // +build linux,seccomp
 
-package seccomp
+package seccomp // import "github.com/docker/docker/profiles/seccomp"
 
 import (
-	"syscall"
-
 	"github.com/docker/docker/api/types"
+	"golang.org/x/sys/unix"
 )
 
 func arches() []types.Architecture {
@@ -49,7 +48,7 @@ func DefaultProfile() *types.Seccomp {
 				"accept",
 				"accept4",
 				"access",
-				"alarm",
+				"adjtimex",
 				"alarm",
 				"bind",
 				"brk",
@@ -156,6 +155,7 @@ func DefaultProfile() *types.Seccomp {
 				"ioctl",
 				"io_destroy",
 				"io_getevents",
+				"io_pgetevents",
 				"ioprio_get",
 				"ioprio_set",
 				"io_setup",
@@ -217,10 +217,12 @@ func DefaultProfile() *types.Seccomp {
 				"prctl",
 				"pread64",
 				"preadv",
+				"preadv2",
 				"prlimit64",
 				"pselect6",
 				"pwrite64",
 				"pwritev",
+				"pwritev2",
 				"read",
 				"readahead",
 				"readlink",
@@ -314,13 +316,13 @@ func DefaultProfile() *types.Seccomp {
 				"stat64",
 				"statfs",
 				"statfs64",
+				"statx",
 				"symlink",
 				"symlinkat",
 				"sync",
 				"sync_file_range",
 				"syncfs",
 				"sysinfo",
-				"syslog",
 				"tee",
 				"tgkill",
 				"time",
@@ -356,6 +358,13 @@ func DefaultProfile() *types.Seccomp {
 			Args:   []*types.Arg{},
 		},
 		{
+			Names:  []string{"ptrace"},
+			Action: types.ActAllow,
+			Includes: types.Filter{
+				MinKernel: "4.8",
+			},
+		},
+		{
 			Names:  []string{"personality"},
 			Action: types.ActAllow,
 			Args: []*types.Arg{
@@ -383,6 +392,28 @@ func DefaultProfile() *types.Seccomp {
 			Args: []*types.Arg{
 				{
 					Index: 0,
+					Value: 0x20000,
+					Op:    types.OpEqualTo,
+				},
+			},
+		},
+		{
+			Names:  []string{"personality"},
+			Action: types.ActAllow,
+			Args: []*types.Arg{
+				{
+					Index: 0,
+					Value: 0x20008,
+					Op:    types.OpEqualTo,
+				},
+			},
+		},
+		{
+			Names:  []string{"personality"},
+			Action: types.ActAllow,
+			Args: []*types.Arg{
+				{
+					Index: 0,
 					Value: 0xffffffff,
 					Op:    types.OpEqualTo,
 				},
@@ -390,8 +421,19 @@ func DefaultProfile() *types.Seccomp {
 		},
 		{
 			Names: []string{
+				"sync_file_range2",
+			},
+			Action: types.ActAllow,
+			Args:   []*types.Arg{},
+			Includes: types.Filter{
+				Arches: []string{"ppc64le"},
+			},
+		},
+		{
+			Names: []string{
 				"arm_fadvise64_64",
 				"arm_sync_file_range",
+				"sync_file_range2",
 				"breakpoint",
 				"cacheflush",
 				"set_tls",
@@ -453,9 +495,11 @@ func DefaultProfile() *types.Seccomp {
 				"mount",
 				"name_to_handle_at",
 				"perf_event_open",
+				"quotactl",
 				"setdomainname",
 				"sethostname",
 				"setns",
+				"syslog",
 				"umount",
 				"umount2",
 				"unshare",
@@ -474,7 +518,7 @@ func DefaultProfile() *types.Seccomp {
 			Args: []*types.Arg{
 				{
 					Index:    0,
-					Value:    syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNET,
+					Value:    unix.CLONE_NEWNS | unix.CLONE_NEWUTS | unix.CLONE_NEWIPC | unix.CLONE_NEWUSER | unix.CLONE_NEWPID | unix.CLONE_NEWNET,
 					ValueTwo: 0,
 					Op:       types.OpMaskedEqual,
 				},
@@ -492,7 +536,7 @@ func DefaultProfile() *types.Seccomp {
 			Args: []*types.Arg{
 				{
 					Index:    1,
-					Value:    syscall.CLONE_NEWNS | syscall.CLONE_NEWUTS | syscall.CLONE_NEWIPC | syscall.CLONE_NEWUSER | syscall.CLONE_NEWPID | syscall.CLONE_NEWNET,
+					Value:    unix.CLONE_NEWNS | unix.CLONE_NEWUTS | unix.CLONE_NEWIPC | unix.CLONE_NEWUSER | unix.CLONE_NEWPID | unix.CLONE_NEWNET,
 					ValueTwo: 0,
 					Op:       types.OpMaskedEqual,
 				},
@@ -576,7 +620,7 @@ func DefaultProfile() *types.Seccomp {
 			Names: []string{
 				"settimeofday",
 				"stime",
-				"adjtimex",
+				"clock_settime",
 			},
 			Action: types.ActAllow,
 			Args:   []*types.Arg{},
@@ -592,6 +636,28 @@ func DefaultProfile() *types.Seccomp {
 			Args:   []*types.Arg{},
 			Includes: types.Filter{
 				Caps: []string{"CAP_SYS_TTY_CONFIG"},
+			},
+		},
+		{
+			Names: []string{
+				"get_mempolicy",
+				"mbind",
+				"set_mempolicy",
+			},
+			Action: types.ActAllow,
+			Args:   []*types.Arg{},
+			Includes: types.Filter{
+				Caps: []string{"CAP_SYS_NICE"},
+			},
+		},
+		{
+			Names: []string{
+				"syslog",
+			},
+			Action: types.ActAllow,
+			Args:   []*types.Arg{},
+			Includes: types.Filter{
+				Caps: []string{"CAP_SYSLOG"},
 			},
 		},
 	}

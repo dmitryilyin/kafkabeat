@@ -10,8 +10,8 @@ import (
 	"io"
 	"io/ioutil"
 
+	metav1 "github.com/ericchiang/k8s/apis/meta/v1"
 	"github.com/ericchiang/k8s/runtime"
-	"github.com/ericchiang/k8s/watch/versioned"
 	"github.com/golang/protobuf/proto"
 )
 
@@ -61,7 +61,17 @@ func (w *watcherJSON) Next(r Resource) (string, error) {
 		return "", fmt.Errorf("decode event: %v", err)
 	}
 	if event.Type == "" {
-		return "", errors.New("wwatch event had no type field")
+		return "", errors.New("watch event had no type field")
+	}
+	if event.Type == EventError {
+		status := &metav1.Status{}
+		if err := json.Unmarshal([]byte(event.Object), status); err != nil {
+			return "", fmt.Errorf("decoding event error: %v", err)
+		}
+		return event.Type, &APIError{
+			Status: status,
+			Code:   int(*status.Code),
+		}
 	}
 	if err := json.Unmarshal([]byte(event.Object), r); err != nil {
 		return "", fmt.Errorf("decode resource: %v", err)
@@ -85,6 +95,16 @@ func (w *watcherPB) Next(r Resource) (string, error) {
 	if event.Type == nil || *event.Type == "" {
 		return "", errors.New("watch event had no type field")
 	}
+	if *event.Type == EventError {
+		status := &metav1.Status{}
+		if err := proto.Unmarshal(unknown.Raw, status); err != nil {
+			return "", fmt.Errorf("decoding event error: %v", err)
+		}
+		return *event.Type, &APIError{
+			Status: status,
+			Code:   int(*status.Code),
+		}
+	}
 	if err := proto.Unmarshal(unknown.Raw, msg); err != nil {
 		return "", err
 	}
@@ -95,7 +115,7 @@ func (w *watcherPB) Close() error {
 	return w.r.Close()
 }
 
-func (w *watcherPB) next() (*versioned.Event, *runtime.Unknown, error) {
+func (w *watcherPB) next() (*metav1.WatchEvent, *runtime.Unknown, error) {
 	length := make([]byte, 4)
 	if _, err := io.ReadFull(w.r, length); err != nil {
 		return nil, nil, err
@@ -106,7 +126,7 @@ func (w *watcherPB) next() (*versioned.Event, *runtime.Unknown, error) {
 		return nil, nil, fmt.Errorf("read frame body: %v", err)
 	}
 
-	var event versioned.Event
+	var event metav1.WatchEvent
 	if err := proto.Unmarshal(body, &event); err != nil {
 		return nil, nil, err
 	}

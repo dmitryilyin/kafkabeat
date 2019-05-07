@@ -20,42 +20,49 @@ package sysinfo
 import (
 	"encoding/json"
 	"os"
+	osUser "os/user"
 	"runtime"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/elastic/go-sysinfo/types"
 )
 
 type ProcessFeatures struct {
-	ProcessInfo    bool
-	Environment    bool
-	FileDescriptor bool
-	CPUTimer       bool
-	Memory         bool
-	Seccomp        bool
-	Capabilities   bool
+	ProcessInfo          bool
+	Environment          bool
+	OpenHandleEnumerator bool
+	OpenHandleCounter    bool
+	Seccomp              bool
+	Capabilities         bool
 }
 
 var expectedProcessFeatures = map[string]*ProcessFeatures{
 	"darwin": &ProcessFeatures{
-		ProcessInfo:    true,
-		Environment:    true,
-		FileDescriptor: false,
-		CPUTimer:       true,
-		Memory:         true,
+		ProcessInfo:          true,
+		Environment:          true,
+		OpenHandleEnumerator: false,
+		OpenHandleCounter:    false,
 	},
 	"linux": &ProcessFeatures{
-		ProcessInfo:    true,
-		Environment:    true,
-		FileDescriptor: true,
-		CPUTimer:       true,
-		Memory:         true,
-		Seccomp:        true,
-		Capabilities:   true,
+		ProcessInfo:          true,
+		Environment:          true,
+		OpenHandleEnumerator: true,
+		OpenHandleCounter:    true,
+		Seccomp:              true,
+		Capabilities:         true,
+	},
+	"windows": &ProcessFeatures{
+		ProcessInfo:          true,
+		OpenHandleEnumerator: false,
+		OpenHandleCounter:    true,
 	},
 }
 
@@ -73,9 +80,8 @@ func TestProcessFeaturesMatrix(t *testing.T) {
 	features.ProcessInfo = true
 
 	_, features.Environment = process.(types.Environment)
-	_, features.FileDescriptor = process.(types.FileDescriptor)
-	_, features.CPUTimer = process.(types.CPUTimer)
-	_, features.Memory = process.(types.Memory)
+	_, features.OpenHandleEnumerator = process.(types.OpenHandleEnumerator)
+	_, features.OpenHandleCounter = process.(types.OpenHandleCounter)
 	_, features.Seccomp = process.(types.Seccomp)
 	_, features.Capabilities = process.(types.Capabilities)
 
@@ -92,6 +98,7 @@ func TestSelf(t *testing.T) {
 	} else if err != nil {
 		t.Fatal(err)
 	}
+	assert.EqualValues(t, os.Getpid(), process.PID())
 
 	if runtime.GOOS == "linux" {
 		// Do some dummy work to spend user CPU time.
@@ -110,6 +117,7 @@ func TestSelf(t *testing.T) {
 	assert.EqualValues(t, os.Getpid(), info.PID)
 	assert.EqualValues(t, os.Getppid(), info.PPID)
 	assert.Equal(t, os.Args, info.Args)
+	assert.WithinDuration(t, info.StartTime, time.Now(), 10*time.Second)
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -123,10 +131,29 @@ func TestSelf(t *testing.T) {
 	}
 	assert.Equal(t, exe, info.Exe)
 
+	parent, err := process.Parent()
 	if err != nil {
 		t.Fatal(err)
 	}
-	assert.WithinDuration(t, info.StartTime, time.Now(), 10*time.Second)
+	assert.EqualValues(t, os.Getppid(), parent.PID())
+
+	user, err := process.User()
+	if err != nil {
+		t.Fatal(err)
+	}
+	output["process.user"] = user
+
+	currentUser, err := osUser.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
+	assert.EqualValues(t, currentUser.Uid, user.UID)
+	assert.EqualValues(t, currentUser.Gid, user.GID)
+
+	if runtime.GOOS != "windows" {
+		assert.EqualValues(t, strconv.Itoa(os.Geteuid()), user.EUID)
+		assert.EqualValues(t, strconv.Itoa(os.Getegid()), user.EGID)
+	}
 
 	if v, ok := process.(types.Environment); ok {
 		expectedEnv := map[string]string{}
@@ -145,27 +172,40 @@ func TestSelf(t *testing.T) {
 		output["process.env"] = actualEnv
 	}
 
-	if v, ok := process.(types.Memory); ok {
-		memInfo := v.Memory()
+	memInfo, err := process.Memory()
+	require.NoError(t, err)
+	if runtime.GOOS != "windows" {
+		// Virtual memory may be reported as
+		// zero on some versions of Windows.
 		assert.NotZero(t, memInfo.Virtual)
-		assert.NotZero(t, memInfo.Resident)
-		output["process.mem"] = memInfo
 	}
+	assert.NotZero(t, memInfo.Resident)
+	output["process.mem"] = memInfo
 
-	if v, ok := process.(types.CPUTimer); ok {
-		cpuTimes := v.CPUTime()
-		assert.NotZero(t, cpuTimes)
-		output["process.cpu"] = cpuTimes
-	}
-
-	if v, ok := process.(types.FileDescriptor); ok {
-		count, err := v.FileDescriptorCount()
-		if assert.NoError(t, err) {
-			t.Log("file descriptor count:", count)
+	for {
+		cpuTimes, err := process.CPUTime()
+		require.NoError(t, err)
+		if cpuTimes.Total() != 0 {
+			output["process.cpu"] = cpuTimes
+			break
 		}
-		fds, err := v.FileDescriptors()
+		// Spin until CPU times are non-zero.
+		// Some operating systems have a very
+		// low resolution on process CPU
+		// measurement.
+	}
+
+	if v, ok := process.(types.OpenHandleEnumerator); ok {
+		fds, err := v.OpenHandles()
 		if assert.NoError(t, err) {
 			output["process.fd"] = fds
+		}
+	}
+
+	if v, ok := process.(types.OpenHandleCounter); ok {
+		count, err := v.OpenHandleCount()
+		if assert.NoError(t, err) {
+			t.Log("open handles count:", count)
 		}
 	}
 
@@ -198,6 +238,7 @@ func TestHost(t *testing.T) {
 
 	info := host.Info()
 	assert.NotZero(t, info)
+	assert.NotZero(t, info.UniqueID)
 
 	memory, err := host.Memory()
 	if err != nil {
@@ -223,4 +264,31 @@ func logAsJSON(t testing.TB, v interface{}) {
 	t.Helper()
 	j, _ := json.MarshalIndent(v, "", "  ")
 	t.Log(string(j))
+}
+
+func TestProcesses(t *testing.T) {
+	start := time.Now()
+	procs, err := Processes()
+	t.Log("Processes() took", time.Since(start))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Log("Found", len(procs), "processes.")
+	for _, proc := range procs {
+		info, err := proc.Info()
+		if err != nil {
+			cause := errors.Cause(err)
+			if os.IsPermission(cause) || syscall.ESRCH == cause {
+				// The process may no longer exist by the time we try fetching
+				// additional information so ignore ESRCH (no such process).
+				continue
+			}
+			t.Fatal(err)
+		}
+		t.Logf("pid=%v name='%s' exe='%s' args=%+v ppid=%d cwd='%s' start_time=%v",
+			info.PID, info.Name, info.Exe, info.Args, info.PPID, info.CWD,
+			info.StartTime)
+	}
+
 }

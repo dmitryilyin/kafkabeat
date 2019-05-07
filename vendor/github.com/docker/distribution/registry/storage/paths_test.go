@@ -3,14 +3,13 @@ package storage
 import (
 	"testing"
 
-	"github.com/docker/distribution/digest"
+	"github.com/opencontainers/go-digest"
 )
 
 func TestPathMapper(t *testing.T) {
 	for _, testcase := range []struct {
 		spec     pathSpec
 		expected string
-		err      error
 	}{
 		{
 			spec: manifestRevisionPathSpec{

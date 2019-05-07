@@ -3,11 +3,16 @@ language: go
 sudo: required
 
 go:
-  - 1.8
-  - 1.9
+  - '1.10'
+  - '1.11'
 
 services:
   - docker
+
+addons:
+  apt:
+    packages:
+    - bsdtar
 
 env:
   - K8S_CLIENT_TEST=1 KUBECONFIG=scripts/kubeconfig
@@ -29,3 +34,7 @@ script:
 
 notifications:
   email: false
+
+branches:
+  only:
+  - master
