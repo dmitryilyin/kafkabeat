@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/arkady-emelyanov/kafkabeat/config"
+	"../config"
 
 	"github.com/Shopify/sarama"
 	"github.com/bsm/sarama-cluster"

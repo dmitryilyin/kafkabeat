@@ -1,9 +1,8 @@
 package cmd
 
 import (
-	"github.com/arkady-emelyanov/kafkabeat/beater"
-
-	cmd "github.com/elastic/beats/libbeat/cmd"
+	"../beater"
+	"github.com/elastic/beats/libbeat/cmd"
 )
 
 // Name of this beat

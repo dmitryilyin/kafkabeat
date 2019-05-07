@@ -18,7 +18,7 @@ type Config struct {
 }
 
 var DefaultConfig = Config{
-	Brokers:           []string{"localhost:9092"},
+	Brokers:           []string{"127.0.0.1:9092"},
 	Topics:            []string{"watch"},
 	ClientID:          "beat",
 	Group:             "kafkabeat",

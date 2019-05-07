@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/arkady-emelyanov/kafkabeat/cmd"
+	"./cmd"
 )
 
 func main() {

@@ -1,6 +1,6 @@
 # Kafkabeat
 
-[![Build Status](https://travis-ci.org/arkady-emelyanov/kafkabeat.svg?branch=master)](https://travis-ci.org/arkady-emelyanov/kafkabeat)
+[![Build Status](https://travis-ci.org/dmitryilyin/kafkabeat.svg?branch=master)](https://travis-ci.org/dmitryilyin/kafkabeat)
 
 Kafkabeat is an [Elastic Beat](https://www.elastic.co/products/beats) that read events from Kafka topics and 
 forward them to any [supported output](https://www.elastic.co/guide/en/beats/filebeat/6.3/configuring-output.html).

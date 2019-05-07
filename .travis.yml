@@ -16,5 +16,5 @@ deploy:
   file_glob: true
   file: build/bin/*
   on:
-    repo: arkady-emelyanov/kafkabeat
+    repo: dmitryilyin/kafkabeat
     tags: true

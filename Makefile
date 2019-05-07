@@ -1,5 +1,5 @@
 BEAT_NAME=kafkabeat
-BEAT_PATH=github.com/arkady-emelyanov/kafkabeat
+BEAT_PATH=github.com/dmitryilyin/kafkabeat
 BEAT_GOPATH=$(firstword $(subst :, ,${GOPATH}))
 BEAT_URL=https://${BEAT_PATH}
 SYSTEM_TESTS=false
