@@ -58,6 +58,7 @@ import (
 	"github.com/elastic/beats/libbeat/monitoring"
 	"github.com/elastic/beats/libbeat/monitoring/report"
 	"github.com/elastic/beats/libbeat/monitoring/report/log"
+	"github.com/elastic/beats/libbeat/monitoring/report/statsd"
 	"github.com/elastic/beats/libbeat/outputs"
 	"github.com/elastic/beats/libbeat/outputs/elasticsearch"
 	"github.com/elastic/beats/libbeat/paths"
@@ -100,6 +101,7 @@ type beatConfig struct {
 	Logging       *common.Config `config:"logging"`
 	MetricLogging *common.Config `config:"logging.metrics"`
 	Keystore      *common.Config `config:"keystore"`
+	StatsdLogging *common.Config `config:"logging.statsd"`
 
 	// output/publishing related configurations
 	Pipeline   pipeline.Config `config:",inline"`
@@ -378,6 +380,14 @@ func (b *Beat) launch(settings Settings, bt beat.Creator) error {
 			return err
 		}
 		defer reporter.Stop()
+	}
+	
+	if b.Config.StatsdLogging != nil && b.Config.StatsdLogging.Enabled() {
+		reporter, err := statsd.MakeReporter(b.Info, b.Config.StatsdLogging)
+		if err != nil {
+			return err
+		}
+		defer reporter.Stop()		
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

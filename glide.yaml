@@ -1,6 +1,8 @@
 package: github.com/dmitryilyin/kafkabeat
 import:
 
+- package: github.com/smira/go-statsd
+
 - package: github.com/Shopify/sarama
   version: 1.18.0
 
