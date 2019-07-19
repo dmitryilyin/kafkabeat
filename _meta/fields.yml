@@ -1,0 +1,8 @@
+- key: kafkabeat
+  title: kafkabeat
+  description:
+  fields:
+    - name: message
+      type: string
+      required: false
+      description: The message field

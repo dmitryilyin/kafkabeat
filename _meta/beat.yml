@@ -1,0 +1,44 @@
+################### Kafkabeat Configuration Example #########################
+
+############################# Kafkabeat ######################################
+
+kafkabeat:
+  # Brokers to connect to.
+  # Defaults to ["localhost:9092"].
+  brokers: ["localhost:9092"]
+
+  # Topics to fetch data.
+  # Defaults to ["watch"].
+  topics: ["watch"]
+
+  # Consumer ClientID. Defaults to beat.
+  client_id: "beat"
+
+  # Consumer group.
+  group: "kafkabeat"
+
+  # The initial offset to use if no offset was previously committed.
+  # Should be "newest" or "oldest". Defaults to "newest".
+  offset: "newest"
+
+  # Codec to use. Can be either "plain" or "json".
+  # @see README.md for detailed explanation.
+  # Defaults to "json".
+  codec: "json"
+
+  # Choose publish mode
+  # - default: Retry count based on output. Blocks if queue is full
+  # - send: Infinite retry + Block if queue is full (e.g. filebeat)
+  # - drop_if_full: Drop event if queue can not accept the event (e.g. packetbeat)
+  publish_mode: "default"
+
+  # The number of events to buffer in internal and external channels. This
+  # permits the producer and consumer to continue processing some messages
+  # in the background while user code is working, greatly improving throughput.
+  # Defaults to 256.
+  channel_buffer_size: 256
+
+  # Number of concurrent publish workers.
+  # General suggestion keep number of workers equal or lower than CPU cores available.
+  # Defaults to number of available cores
+  channel_workers: 1
